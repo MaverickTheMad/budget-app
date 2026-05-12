@@ -7,6 +7,7 @@ import Goals from './pages/Goals'
 import Snowball from './pages/Snowball'
 import Insights from './pages/Insights'
 import Imports from './pages/Imports'
+import Rules from './pages/Rules'
 import Settings from './pages/Settings'
 
 const NAV = [
@@ -18,6 +19,7 @@ const NAV = [
   { to: '/snowball',     label: 'Snowball' },
   { to: '/insights',     label: 'Insights' },
   { to: '/imports',      label: 'Imports' },
+  { to: '/rules',        label: 'Rules' },
   { to: '/settings',     label: 'Settings' }
 ]
 
@@ -54,6 +56,7 @@ export default function App() {
           <Route path="/snowball"     element={<Snowball />} />
           <Route path="/insights"     element={<Insights />} />
           <Route path="/imports"      element={<Imports />} />
+          <Route path="/rules"        element={<Rules />} />
           <Route path="/settings"     element={<Settings />} />
         </Routes>
       </main>

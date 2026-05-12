@@ -123,21 +123,8 @@ export default function Settings() {
         ]}
       />
 
-      <CrudList
-        table="rules"
-        title="Categorization rules"
-        orderBy="priority"
-        defaults={{ name: '', match_field: 'description', match_type: 'contains', match_value: '', priority: 100, active: true }}
-        fields={[
-          { key: 'name', label: 'Rule name' },
-          { key: 'match_value', label: 'Match value (e.g. WEGMANS)' },
-          { key: 'match_type', label: 'Match type', type: 'select', options: ['contains','equals','starts','regex'] },
-          { key: 'priority', label: 'Priority (lower = checked first)', type: 'number' }
-        ]}
-      />
-
       <div style={{ marginTop: '2rem', padding: '1rem', textAlign: 'center', color: 'var(--ink-muted)', fontSize: 13 }}>
-        <p>Rules become active in v1.1 with statement imports. You can build the list now.</p>
+        <p>Categorization rules live on their own page now — see <strong>Rules</strong> in the nav.</p>
       </div>
     </div>
   )

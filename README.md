@@ -1,27 +1,24 @@
 # Ledger — Family Budget
 
-A budgeting tool built for Ren &amp; Mav, mirroring the structure of your Family_Budget.xlsx with bills, paychecks, budgets, transactions, sinking funds, snowball debt payoff, and FYTD insights.
+A budgeting tool built for Ren &amp; Mav, mirroring the structure of your Family_Budget.xlsx with bills, paychecks, budgets, transactions, sinking funds, snowball debt payoff, FYTD insights, and PDF statement imports.
 
-## What's in v1.0
+## What's in v1.1
 
-- **Overview** — monthly cashflow, upcoming bills, goal progress
-- **Bills** — master list with paid/unpaid checkboxes per month, due dates, autopay flags
-- **Budgets** — monthly budget per category vs actual spending, with progress bars
-- **Transactions** — full ledger with filters by category, account, person, and search
-- **Goals** — sinking funds (envelopes) with contributions log and target dates
-- **Snowball** — debt list with auto-projected month-by-month payoff schedule
-- **Insights** — monthly cashflow chart, category breakdown bar &amp; pie, FYTD totals
-- **Imports** — placeholder for v1.1 (PDF statement import + rules engine)
-- **Settings** — CRUD for people, accounts, categories, and rules
+**New:**
+- **Statement imports** — drag-drop a Chase PDF, parser extracts transactions, rules engine auto-categorizes, review screen lets you edit/skip/approve, commit writes to the ledger as a batch
+- **Rules tab** — first-class page for building categorization rules with category dropdowns, live preview, and a description tester
+- **Duplicate detection** — strict date+amount match flags rows that already exist in your ledger
+- **Undoable imports** — every import gets a batch ID; the recent-imports table on the Imports page has an Undo button that nukes the entire batch
 
-Seeded with your existing data: 13 categories, 11 sinking-fund envelopes, 12 bills with due dates from your spreadsheet, 5 debts with current balances and APRs, and 2 paycheck definitions.
+**v1.0 (still there):**
+- Overview · Bills · Budgets · Transactions · Goals · Snowball · Insights · Settings
 
 ## Stack
 
-- **Frontend:** React + Vite
+- **Frontend:** React + Vite, pdfjs-dist for PDF text extraction (all client-side)
 - **Backend:** Supabase (Postgres)
 - **Hosting:** Vercel
-- **Domain:** budget.reilly.live (via Namecheap)
+- **Domain:** budget.reilly.live
 
 ## Local setup
 
@@ -107,11 +104,32 @@ In `MaverickTheMad/home`, change the Budget card in `public/index.html` from "so
 
 Row Level Security is enabled with anonymous access on all tables, matching the pattern used in `rens-journal` and `shopping`. If you ever want stricter auth, swap to Supabase Auth later — the schema is ready for it.
 
-## What's next (v1.1)
+## What's next (v1.2 ideas)
 
-- PDF statement upload with text extraction
-- Per-bank parsing templates (Chase, Ally, etc.)
-- Rules engine running on parsed transactions
-- Side-by-side review screen before commit
-- Duplicate detection against existing ledger
-- Budget-vs-actual diff after import
+- More bank parsers (Ally, Capital One, Discover)
+- Per-account starting balances + reconciliation view
+- Recurring transaction templates
+- Export to CSV / Excel
+- Generic CSV import for banks that don't offer PDF exports
+
+## How statement imports work
+
+1. **Drop a Chase PDF** on the Imports page (or pick from file picker)
+2. **pdf.js extracts** the raw text in your browser — nothing uploads anywhere unprivileged
+3. **Chase parser** walks the text, identifies date/description/amount per line, sections (deposits vs withdrawals) drive the sign
+4. **Rules engine** runs over each parsed row — first matching rule (by priority) assigns the category
+5. **Duplicate detector** flags any parsed row whose date+amount already exists in your ledger; those get auto-skipped (you can override)
+6. **Review screen** — edit any row, toggle import, see net total, then commit
+7. **Commit** creates a `statement_imports` batch row, inserts all approved transactions tagged with that batch ID, bumps `hits` count on used rules
+
+To **undo an import**, scroll down to "Recent imports" on the Imports page (before uploading a new one) and hit Undo. It deletes every transaction with that batch ID.
+
+### A note on credit card signs
+
+Chase credit card statements list charges as positive ("$47.99 Amazon") and payments as negative ("-$350 Payment Thank You"). The parser preserves that — a charge becomes a negative transaction in your ledger (money out), and a payment becomes... also negative, since from the credit card's perspective the payment reduces the balance. If you track credit cards as debt accounts (as in Snowball), this is correct. If you track them as expense flow-through, you may want to flip payment signs in the review screen — easy to do, just toggle the amount field.
+
+### Adding a new bank parser
+
+1. Create `src/lib/parsers/<bank>.js` exporting `parse<Bank>(text)` and `is<Bank>(text)`
+2. Register it in `src/lib/parsers/index.js`
+3. The Imports UI picks it up automatically
