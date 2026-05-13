@@ -1,6 +1,14 @@
 // PDF text extraction using pdf.js.
 // Returns the full extracted text, page by page, joined with form feeds.
 // Used by parsers downstream — parsers should not need to know about PDF internals.
+//
+// IMPORTANT: pdf.js returns text items in the PDF's *content stream* order, which
+// is NOT guaranteed to be reading order. For multi-column or tabular layouts
+// (bank statements, invoices), items can arrive in column-major order — e.g.
+// every "amount" on the page in one run, then every "balance", then every
+// description row. So we MUST sort by Y position (then X) before reconstructing
+// rows, and we MUST cluster rows with a Y tolerance because text within a row
+// may have slight baseline jitter.
 
 import * as pdfjsLib from 'pdfjs-dist'
 
@@ -22,21 +30,65 @@ export async function extractPdfText(file) {
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i)
     const content = await page.getTextContent()
-    // Reconstruct lines by Y position — pdf.js gives items in reading order
-    // but lines often need explicit \n based on transform[5] (Y coord)
-    let lastY = null
-    let line = ''
-    const lines = []
-    for (const item of content.items) {
-      const y = Math.round(item.transform[5])
-      if (lastY !== null && Math.abs(y - lastY) > 2) {
-        if (line.trim()) lines.push(line.trim())
-        line = ''
-      }
-      line += (line && !line.endsWith(' ') ? ' ' : '') + item.str
-      lastY = y
+
+    // Build {x, y, str, width} from items.
+    // transform = [a, b, c, d, e, f] in matrix form; e = x, f = y.
+    // PDF Y coords: larger Y = higher on page, so we sort DESC for top-down.
+    const items = content.items
+      .filter(it => it.str && it.str.length > 0)
+      .map(it => ({
+        x: it.transform[4],
+        y: it.transform[5],
+        str: it.str,
+        width: it.width || 0
+      }))
+
+    if (items.length === 0) {
+      pages.push('')
+      continue
     }
-    if (line.trim()) lines.push(line.trim())
+
+    // Sort top-to-bottom (Y descending), then left-to-right
+    items.sort((a, b) => {
+      if (Math.abs(a.y - b.y) > 3) return b.y - a.y
+      return a.x - b.x
+    })
+
+    // Cluster into rows by Y proximity. ~3-unit tolerance handles baseline jitter
+    // without merging adjacent rows (Chase uses ~10pt line height).
+    const ROW_TOLERANCE = 3
+    const rows = []
+    let currentRow = []
+    let currentY = null
+    for (const it of items) {
+      if (currentY === null || Math.abs(it.y - currentY) <= ROW_TOLERANCE) {
+        currentRow.push(it)
+        currentY = currentY === null ? it.y : (currentY + it.y) / 2
+      } else {
+        if (currentRow.length > 0) rows.push(currentRow)
+        currentRow = [it]
+        currentY = it.y
+      }
+    }
+    if (currentRow.length > 0) rows.push(currentRow)
+
+    // Build text per row, inserting a space where there's a horizontal gap
+    const lines = []
+    for (const row of rows) {
+      row.sort((a, b) => a.x - b.x)
+      let line = ''
+      let lastEnd = null
+      for (const it of row) {
+        if (lastEnd !== null && it.x - lastEnd > 2) {
+          line += ' '
+        }
+        line += it.str
+        lastEnd = it.x + it.width
+      }
+      line = line.replace(/\s+/g, ' ').trim()
+      if (line) lines.push(line)
+    }
+
     pages.push(lines.join('\n'))
   }
   return {

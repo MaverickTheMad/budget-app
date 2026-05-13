@@ -77,7 +77,12 @@ const NUMBER_RE = /-?[\d,]+\.\d{2}/g
  * by scanning for the FIRST MM/DD that's followed by enough content.
  */
 function parseLine(line, period) {
-  const collapsed = line.replace(/\s+/g, ' ').trim()
+  // Chase PDFs render negative amounts with a SPACE between the minus sign and
+  // the number (e.g. "- 68.95" instead of "-68.95"). Re-attach so NUMBER_RE
+  // picks up the sign correctly. Only do this when the dash is preceded by
+  // whitespace (or is at the start) — never alter dashes inside descriptions.
+  const normalized = line.replace(/(^|\s)-\s+(\d)/g, '$1-$2')
+  const collapsed = normalized.replace(/\s+/g, ' ').trim()
   if (collapsed.length < 10) return null
 
   // Try two variants: as-is, and with the very first character stripped (handles
