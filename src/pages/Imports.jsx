@@ -468,8 +468,22 @@ function ReviewStep({ parsed, updateRow, categories, accounts, stats, onCommit, 
                   </select>
                   {r._ruleId && <div style={{ fontSize: 10, color: 'var(--positive)', marginTop: 2 }}>by rule</div>}
                 </td>
-                <td className={'num amount ' + (r._amount < 0 ? 'amount-neg' : 'amount-pos')}>
-                  {fmt(r._amount, { signed: true })}
+                <td className="num">
+                  <input
+                    type="number"
+                    step="0.01"
+                    className={'input mono ' + (r._amount < 0 ? 'amount-neg' : 'amount-pos')}
+                    value={r._amount}
+                    onChange={(e) => updateRow(i, { _amount: parseFloat(e.target.value) || 0 })}
+                    style={{
+                      padding: '0.3rem 0.5rem',
+                      fontSize: 13,
+                      width: 110,
+                      textAlign: 'right',
+                      fontWeight: 500,
+                      color: r._amount < 0 ? 'var(--negative)' : 'var(--positive)'
+                    }}
+                  />
                 </td>
                 <td>
                   {r._duplicate && <span className="pill pill-late" title={`Likely matches: ${r._duplicateOfDescription}`}>Duplicate</span>}
