@@ -73,7 +73,7 @@ const NUMBER_RE = /-?[\d,]+\.\d{2}/g
  *
  * Required shape: a MM/DD date followed by a description and two trailing
  * decimal numbers (AMOUNT and BALANCE). We tolerate PDF artifacts at the
- * start of the line (page numbers, structure markers like *start*/end*)
+ * start of the line (page numbers, structure markers like *start* / *end*)
  * by scanning for the FIRST MM/DD that's followed by enough content.
  */
 function parseLine(line, period) {
