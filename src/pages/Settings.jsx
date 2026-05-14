@@ -1,10 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useTable } from '../hooks/useTable'
-import { supabase } from '../lib/supabase'
 import { fmt } from '../lib/format'
-import { toISODate, getPayCycle, formatCycleLabel } from '../lib/payCycle'
-
-const ANCHOR_KEY = 'pay_cycle_anchor'
+import { toISODate } from '../lib/payCycle'
 
 // Generic CRUD list used for simple tables
 function CrudList({ table, title, fields, defaults, orderBy }) {
@@ -82,6 +79,114 @@ function CrudList({ table, title, fields, defaults, orderBy }) {
   )
 }
 
+// People card — custom because we need a paycheck dropdown for primary_paycheck_id
+function PeopleCard() {
+  const { data: people, insert, update, remove } = useTable('people', { orderBy: 'name' })
+  const { data: paychecks } = useTable('paychecks')
+  const [editing, setEditing] = useState(null)
+  const [open, setOpen] = useState(false)
+
+  const blank = () => ({ name: '', color: '#6b7a5a', primary_paycheck_id: null })
+
+  const handleSave = async () => {
+    const payload = {
+      name: editing.name,
+      color: editing.color,
+      primary_paycheck_id: editing.primary_paycheck_id || null
+    }
+    if (editing.id) await update(editing.id, payload)
+    else await insert(payload)
+    setOpen(false); setEditing(null)
+  }
+
+  return (
+    <div className="card" style={{ marginBottom: '1rem' }}>
+      <div className="card-head">
+        <h3>People</h3>
+        <button className="btn btn-sm" onClick={() => { setEditing(blank()); setOpen(true) }}>+ Add</button>
+      </div>
+      {people.length === 0 ? (
+        <div className="empty"><p>None yet.</p></div>
+      ) : (
+        <table className="ledger">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Primary paycheck</th>
+              <th style={{ width: 60 }}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {people.map(p => {
+              const pc = paychecks.find(x => x.id === p.primary_paycheck_id)
+              return (
+                <tr key={p.id}>
+                  <td>
+                    <span className="dot" style={{ background: p.color, marginRight: 6 }}></span>
+                    <span style={{ fontWeight: 500 }}>{p.name}</span>
+                  </td>
+                  <td style={{ fontSize: 13 }}>
+                    {pc ? (
+                      <>
+                        {pc.label} <span style={{ color: 'var(--ink-muted)' }}>· {pc.next_date}</span>
+                      </>
+                    ) : (
+                      <span style={{ color: 'var(--negative)' }}>None set — pick one to anchor their pay cycle</span>
+                    )}
+                  </td>
+                  <td style={{ textAlign: 'right' }}>
+                    <button className="icon-btn" onClick={() => { setEditing({ ...p }); setOpen(true) }}>✎</button>
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      )}
+
+      {open && editing && (
+        <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && setOpen(false)}>
+          <div className="modal">
+            <h2>{editing.id ? 'Edit person' : 'New person'}</h2>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+              <div className="field">
+                <label>Name</label>
+                <input className="input" value={editing.name || ''} onChange={(e) => setEditing({ ...editing, name: e.target.value })} autoFocus />
+              </div>
+              <div className="field">
+                <label>Color</label>
+                <input className="input" type="color" value={editing.color || '#6b7a5a'} onChange={(e) => setEditing({ ...editing, color: e.target.value })} style={{ height: 38 }} />
+              </div>
+              <div className="field">
+                <label>Primary paycheck (anchors pay cycle)</label>
+                <select className="select" value={editing.primary_paycheck_id || ''} onChange={(e) => setEditing({ ...editing, primary_paycheck_id: e.target.value || null })}>
+                  <option value="">— None —</option>
+                  {paychecks.map(pc => (
+                    <option key={pc.id} value={pc.id}>
+                      {pc.label} ({pc.next_date || 'no date'})
+                    </option>
+                  ))}
+                </select>
+                <small style={{ color: 'var(--ink-muted)', fontSize: 12 }}>
+                  The pay date you pick anchors this person's 14-day budget cycle. Add paychecks below first if the dropdown is empty.
+                </small>
+              </div>
+            </div>
+            <div className="modal-actions">
+              {editing.id && (
+                <button className="btn btn-ghost" style={{ marginRight: 'auto', color: 'var(--negative)' }}
+                  onClick={() => { if (confirm('Delete person?')) { remove(editing.id); setOpen(false) } }}>Delete</button>
+              )}
+              <button className="btn btn-ghost" onClick={() => setOpen(false)}>Cancel</button>
+              <button className="btn" onClick={handleSave} disabled={!editing.name?.trim()}>Save</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // Custom Paychecks card — has FK to people, date input, cadence dropdown
 function PaychecksCard() {
   const { data: paychecks, insert, update, remove } = useTable('paychecks', { orderBy: 'label' })
@@ -113,7 +218,6 @@ function PaychecksCard() {
     setOpen(false); setEditing(null)
   }
 
-  // Quick computation of monthly total
   const monthly = paychecks.reduce((s, p) => {
     const mult = p.cadence === 'biweekly' ? 26/12 : p.cadence === 'weekly' ? 52/12
       : p.cadence === 'semimonthly' ? 2 : 1
@@ -130,7 +234,7 @@ function PaychecksCard() {
         </div>
       </div>
       {paychecks.length === 0 ? (
-        <div className="empty"><p>No paychecks yet. Add one to drive cycle income on the Overview page.</p></div>
+        <div className="empty"><p>No paychecks yet. Add one to set a pay-cycle anchor.</p></div>
       ) : (
         <table className="ledger">
           <thead>
@@ -210,6 +314,9 @@ function PaychecksCard() {
               <div className="field">
                 <label>Next pay date</label>
                 <input className="input" type="date" value={editing.next_date || ''} onChange={(e) => setEditing({ ...editing, next_date: e.target.value || null })} />
+                <small style={{ color: 'var(--ink-muted)', fontSize: 12 }}>
+                  This is the anchor for the pay cycle when this is someone's primary paycheck.
+                </small>
               </div>
             </div>
             <div className="modal-actions">
@@ -227,50 +334,6 @@ function PaychecksCard() {
   )
 }
 
-// Pay cycle anchor — single value
-function PayCycleAnchorCard() {
-  const [anchorISO, setAnchorISO] = useState('')
-  const [saving, setSaving] = useState(false)
-
-  useEffect(() => {
-    supabase.from('app_settings').select('value').eq('key', ANCHOR_KEY).maybeSingle()
-      .then(({ data }) => {
-        const v = data?.value
-        setAnchorISO(typeof v === 'string' ? v : (v?.date || toISODate(new Date())))
-      })
-  }, [])
-
-  const save = async () => {
-    setSaving(true)
-    await supabase.from('app_settings')
-      .upsert({ key: ANCHOR_KEY, value: anchorISO, updated_at: new Date().toISOString() })
-    setSaving(false)
-  }
-
-  const preview = anchorISO ? formatCycleLabel(getPayCycle(anchorISO)) : '—'
-
-  return (
-    <div className="card" style={{ marginBottom: '1rem' }}>
-      <div className="card-head">
-        <h3>Pay cycle anchor</h3>
-      </div>
-      <p style={{ fontSize: 13, color: 'var(--ink-muted)', marginBottom: '0.75rem' }}>
-        The Budgets and Overview pages run on a 14-day pay cycle. Set the date a cycle starts — typically a paycheck date. Cycles repeat every 14 days from there.
-      </p>
-      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'end' }}>
-        <div className="field" style={{ flex: 1 }}>
-          <label>Cycle start date</label>
-          <input className="input" type="date" value={anchorISO} onChange={(e) => setAnchorISO(e.target.value)} />
-        </div>
-        <button className="btn" onClick={save} disabled={!anchorISO || saving}>{saving ? 'Saving…' : 'Save'}</button>
-      </div>
-      <p style={{ fontSize: 12, color: 'var(--ink-muted)', marginTop: '0.5rem' }}>
-        Current cycle: <strong>{preview}</strong>
-      </p>
-    </div>
-  )
-}
-
 export default function Settings() {
   return (
     <div>
@@ -278,24 +341,13 @@ export default function Settings() {
         <div>
           <p className="eyebrow">Setup</p>
           <h1>Settings</h1>
-          <p>Accounts, paychecks, categories, people.</p>
+          <p>Accounts, paychecks, people, categories.</p>
         </div>
       </div>
 
-      <PayCycleAnchorCard />
-
       <PaychecksCard />
 
-      <CrudList
-        table="people"
-        title="People"
-        orderBy="name"
-        defaults={{ name: '', color: '#6b7a5a' }}
-        fields={[
-          { key: 'name', label: 'Name' },
-          { key: 'color', label: 'Color', type: 'color' }
-        ]}
-      />
+      <PeopleCard />
 
       <CrudList
         table="accounts"
