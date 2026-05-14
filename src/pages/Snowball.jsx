@@ -4,40 +4,62 @@ import { fmt, monthShort } from '../lib/format'
 
 /**
  * Snowball schedule projection.
- * Generates a month-by-month payoff projection.
- * - Each debt pays its `snowball_payment` until paid off.
- * - When a debt finishes, its payment cascades to the next debt in payoff_order.
+ * - Each debt pays its `snowball_payment` until paid off
+ * - When a debt clears, its full payment cascades to the next debt by payoff_order
+ *
+ * Important: this function MUST NOT mutate the input array. We deep-copy each
+ * debt into a working state. If we mutated, the parent's React state would
+ * silently change and subsequent useMemo runs would see "no diff" and skip work.
  */
 function projectSnowball(debts) {
-  const sorted = [...debts].filter(d => !d.paid_off && Number(d.current_balance) > 0)
-    .sort((a, b) => (a.payoff_order || 99) - (b.payoff_order || 99))
-  const state = sorted.map(d => ({ ...d, _balance: Number(d.current_balance) }))
+  const active = [...debts]
+    .filter(d => !d.paid_off && Number(d.current_balance) > 0)
+    .sort((a, b) => (Number(a.payoff_order) || 99) - (Number(b.payoff_order) || 99))
+
+  // Fresh state objects — never reference the original debts beyond reading initial values
+  const state = active.map(d => ({
+    id: d.id,
+    name: d.name,
+    apr: Number(d.apr) || 0,
+    // Use ?? not || so 0 is preserved (a paid-down balance of 0 should stay 0,
+    // not fall back to current_balance, etc.)
+    payment: Number(d.snowball_payment) || Number(d.min_payment) || 0,
+    balance: Number(d.current_balance) || 0,
+    wasZero: false
+  }))
+
   const months = []
   let freed = 0
   const startDate = new Date()
-  for (let i = 0; i < 120 && state.some(d => d._balance > 0); i++) {
+
+  for (let i = 0; i < 240 && state.some(d => d.balance > 0); i++) {
     const monthDate = new Date(startDate.getFullYear(), startDate.getMonth() + i, 1)
     const row = { date: monthDate, debts: {}, totalBalance: 0, totalPaid: 0 }
     let extra = freed
+
     for (const d of state) {
-      if (d._balance <= 0) continue
-      const interest = (d._balance * Number(d.apr || 0)) / 12
-      let payment = Number(d.snowball_payment || d.min_payment || 0) + extra
+      if (d.balance <= 0) {
+        row.debts[d.id] = { balance: 0, payment: 0, interest: 0, principal: 0, cleared: true }
+        continue
+      }
+      const interest = (d.balance * d.apr) / 12
+      let payment = d.payment + extra
       extra = 0
-      if (payment > d._balance + interest) {
-        extra = payment - (d._balance + interest)
-        payment = d._balance + interest
+      // Don't overpay
+      if (payment > d.balance + interest) {
+        extra = payment - (d.balance + interest)
+        payment = d.balance + interest
       }
       const principal = payment - interest
-      d._balance = Math.max(0, d._balance + interest - payment)
-      row.debts[d.id] = { balance: d._balance, payment, interest, principal, cleared: d._balance === 0 }
+      d.balance = Math.max(0, d.balance + interest - payment)
+      row.debts[d.id] = { balance: d.balance, payment, interest, principal, cleared: d.balance === 0 }
       row.totalPaid += payment
-      if (d._balance === 0 && !d._wasZero) {
-        d._wasZero = true
-        freed += Number(d.snowball_payment || d.min_payment || 0)
+      if (d.balance === 0 && !d.wasZero) {
+        d.wasZero = true
+        freed += d.payment
       }
     }
-    row.totalBalance = state.reduce((s, d) => s + d._balance, 0)
+    row.totalBalance = state.reduce((s, d) => s + d.balance, 0)
     months.push(row)
   }
   return { months, debts: state }
@@ -62,12 +84,15 @@ export default function Snowball() {
   const [modalOpen, setModalOpen] = useState(false)
   const [editing, setEditing] = useState(null)
 
+  // Memoize activeDebts so the schedule's column list has a stable reference
+  // and useMemo deps don't churn every render.
+  const activeDebts = useMemo(() => debts.filter(d => !d.paid_off), [debts])
   const projection = useMemo(() => projectSnowball(debts), [debts])
-  const activeDebts = debts.filter(d => !d.paid_off)
 
   const totals = useMemo(() => ({
     balance: activeDebts.reduce((s, d) => s + Number(d.current_balance), 0),
-    monthly: activeDebts.reduce((s, d) => s + Number(d.snowball_payment || d.min_payment || 0), 0),
+    monthly: activeDebts.reduce((s, d) =>
+      s + (Number(d.snowball_payment) || Number(d.min_payment) || 0), 0),
     monthsToFree: projection.months.length,
     payoffDate: projection.months[projection.months.length - 1]?.date
   }), [activeDebts, projection])
@@ -80,7 +105,7 @@ export default function Snowball() {
   )
 
   const openNew = () => {
-    const nextOrder = Math.max(0, ...debts.map(d => d.payoff_order || 0)) + 1
+    const nextOrder = Math.max(0, ...debts.map(d => Number(d.payoff_order) || 0)) + 1
     setEditing(blankDebt(nextOrder))
     setModalOpen(true)
   }
@@ -91,14 +116,20 @@ export default function Snowball() {
 
   const handleSave = async () => {
     const aprDecimal = (parseFloat(editing._aprPercent) || 0) / 100
+    const snowballPayment = editing.snowball_payment !== '' && editing.snowball_payment != null
+      ? Number(editing.snowball_payment)
+      : Number(editing.min_payment) || 0
+    const payoffOrder = editing.payoff_order !== '' && editing.payoff_order != null
+      ? Number(editing.payoff_order)
+      : 99
     const payload = {
       name: editing.name,
       starting_balance: Number(editing.starting_balance) || Number(editing.current_balance) || 0,
       current_balance: Number(editing.current_balance) || 0,
       apr: aprDecimal,
       min_payment: Number(editing.min_payment) || 0,
-      snowball_payment: Number(editing.snowball_payment) || Number(editing.min_payment) || 0,
-      payoff_order: Number(editing.payoff_order) || 99,
+      snowball_payment: snowballPayment,
+      payoff_order: payoffOrder,
       paid_off: !!editing.paid_off,
       account_id: editing.account_id || null
     }
@@ -172,13 +203,13 @@ export default function Snowball() {
                 </tr>
               </thead>
               <tbody>
-                {[...debts].sort((a, b) => (a.payoff_order || 99) - (b.payoff_order || 99)).map(d => (
+                {[...debts].sort((a, b) => (Number(a.payoff_order) || 99) - (Number(b.payoff_order) || 99)).map(d => (
                   <tr key={d.id} style={{ opacity: d.paid_off ? 0.5 : 1 }}>
                     <td className="mono">{d.payoff_order}</td>
                     <td style={{ fontWeight: 500 }}>{d.name}</td>
                     <td className="num">{fmt(d.current_balance, { showCents: false })}</td>
                     <td className="num">{(Number(d.apr) * 100).toFixed(2)}%</td>
-                    <td className="num">{fmt(d.snowball_payment || d.min_payment, { showCents: false })}</td>
+                    <td className="num">{fmt(Number(d.snowball_payment) || Number(d.min_payment) || 0, { showCents: false })}</td>
                     <td>
                       {d.paid_off ? <span className="pill pill-paid">Paid off</span> : <span className="pill">Active</span>}
                     </td>
@@ -212,7 +243,7 @@ export default function Snowball() {
                 </thead>
                 <tbody>
                   {projection.months.slice(0, 36).map((m, i) => (
-                    <tr key={i}>
+                    <tr key={`${m.date.getTime()}-${i}`}>
                       <td className="mono" style={{ fontSize: 12, color: 'var(--ink-muted)' }}>
                         {monthShort(m.date.getMonth() + 1)} {String(m.date.getFullYear()).slice(2)}
                       </td>
@@ -222,7 +253,7 @@ export default function Snowball() {
                         return (
                           <td key={d.id} className="num" style={{ color: row.cleared ? 'var(--positive)' : 'inherit' }}>
                             {fmt(row.balance, { showCents: false })}
-                            {row.cleared && <div style={{ fontSize: 10, color: 'var(--positive)' }}>✓ cleared</div>}
+                            {row.cleared && row.balance === 0 && i < projection.months.length - 1 && row.payment > 0 && <div style={{ fontSize: 10, color: 'var(--positive)' }}>✓ cleared</div>}
                           </td>
                         )
                       })}

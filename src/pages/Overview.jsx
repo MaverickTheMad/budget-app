@@ -1,43 +1,70 @@
-import { useMemo } from 'react'
+import { useMemo, useEffect, useState } from 'react'
 import { useTable } from '../hooks/useTable'
 import { fmt, monthName, currentMonth, ordinal, daysUntil } from '../lib/format'
+import { supabase } from '../lib/supabase'
+import { getPayCycle, formatCycleLabel, toISODate } from '../lib/payCycle'
+
+const ANCHOR_KEY = 'pay_cycle_anchor'
 
 export default function Overview() {
   const { year, month } = currentMonth()
+  const [anchorISO, setAnchorISO] = useState(null)
+
+  useEffect(() => {
+    let mounted = true
+    supabase.from('app_settings').select('value').eq('key', ANCHOR_KEY).maybeSingle()
+      .then(({ data }) => {
+        if (!mounted) return
+        const v = data?.value
+        setAnchorISO(typeof v === 'string' ? v : (v?.date || toISODate(new Date())))
+      })
+    return () => { mounted = false }
+  }, [])
+
+  const cycle = useMemo(() => anchorISO
+    ? { ...getPayCycle(anchorISO), label: formatCycleLabel(getPayCycle(anchorISO)) }
+    : null, [anchorISO])
+
   const { data: bills } = useTable('bills', { filters: [{ col: 'active', op: 'eq', val: true }] })
   const { data: paychecks } = useTable('paychecks')
   const { data: transactions } = useTable('transactions', { orderBy: 'date', ascending: false })
   const { data: goals } = useTable('goals', { filters: [{ col: 'archived', op: 'eq', val: false }] })
-  const { data: budgets } = useTable('monthly_budgets', { filters: [
-    { col: 'year', op: 'eq', val: year },
-    { col: 'month', op: 'eq', val: month }
-  ]})
+  const { data: cycleBudgets } = useTable('monthly_budgets', {
+    filters: cycle ? [
+      { col: 'year', op: 'eq', val: cycle.index },
+      { col: 'month', op: 'eq', val: 0 }
+    ] : [],
+    deps: [cycle?.index]
+  })
 
   const totals = useMemo(() => {
     const monthlyIncome = paychecks.reduce((s, p) => {
       const multiplier = p.cadence === 'biweekly' ? 26 / 12 : p.cadence === 'weekly' ? 52 / 12 : p.cadence === 'semimonthly' ? 2 : 1
       return s + Number(p.amount) * multiplier
     }, 0)
+    const cycleIncome = paychecks.reduce((s, p) => {
+      // For biweekly, one paycheck per cycle. For others, prorate.
+      const perCycle = p.cadence === 'biweekly' ? Number(p.amount)
+        : p.cadence === 'weekly' ? Number(p.amount) * 2
+        : p.cadence === 'semimonthly' ? Number(p.amount) * (14/15.2)
+        : Number(p.amount) * (14/30.5)
+      return s + perCycle
+    }, 0)
     const monthlyBills = bills.reduce((s, b) => s + Number(b.amount), 0)
-    const budgetedThisMonth = budgets.reduce((s, b) => s + Number(b.amount), 0)
 
-    const thisMonthTx = transactions.filter(t => {
-      const d = new Date(t.date)
-      return d.getFullYear() === year && d.getMonth() + 1 === month
-    })
-    const spentThisMonth = thisMonthTx.filter(t => Number(t.amount) < 0).reduce((s, t) => s + Math.abs(Number(t.amount)), 0)
-    const incomeThisMonth = thisMonthTx.filter(t => Number(t.amount) > 0).reduce((s, t) => s + Number(t.amount), 0)
+    const cycleTx = cycle ? transactions.filter(t => t.date >= cycle.startISO && t.date < cycle.endISO) : []
+    const spentThisCycle = cycleTx.filter(t => Number(t.amount) < 0).reduce((s, t) => s + Math.abs(Number(t.amount)), 0)
+    const budgetedThisCycle = cycleBudgets.reduce((s, b) => s + Number(b.amount), 0)
 
     return {
       monthlyIncome,
+      cycleIncome,
       monthlyBills,
-      budgetedThisMonth,
-      spentThisMonth,
-      incomeThisMonth,
-      leftover: monthlyIncome - monthlyBills,
-      remaining: budgetedThisMonth - spentThisMonth
+      budgetedThisCycle,
+      spentThisCycle,
+      leftover: cycleIncome - (monthlyBills / 2)   // half of monthly bills per cycle
     }
-  }, [paychecks, bills, transactions, budgets, year, month])
+  }, [paychecks, bills, transactions, cycleBudgets, cycle])
 
   const upcoming = useMemo(() =>
     [...bills]
@@ -51,31 +78,32 @@ export default function Overview() {
     <div>
       <div className="page-header">
         <div>
-          <p className="eyebrow">{monthName(month)} {year}</p>
+          <p className="eyebrow">{cycle ? cycle.label : `${monthName(month)} ${year}`}</p>
           <h1>Where we stand</h1>
+          {cycle && <p>{cycle.daysLeft} day{cycle.daysLeft !== 1 ? 's' : ''} left in this cycle</p>}
         </div>
       </div>
 
       <div className="grid-4" style={{ marginBottom: '1.5rem' }}>
         <div className="stat-card accent">
-          <div className="stat-label">Monthly income</div>
-          <div className="stat-value">{fmt(totals.monthlyIncome, { showCents: false })}</div>
-          <div className="stat-sub">From {paychecks.length} paycheck{paychecks.length !== 1 ? 's' : ''}</div>
+          <div className="stat-label">Cycle income</div>
+          <div className="stat-value">{fmt(totals.cycleIncome, { showCents: false })}</div>
+          <div className="stat-sub">{fmt(totals.monthlyIncome, { showCents: false })}/mo · {paychecks.length} paycheck{paychecks.length !== 1 ? 's' : ''}</div>
         </div>
         <div className="stat-card">
-          <div className="stat-label">Bills total</div>
+          <div className="stat-label">Bills (monthly)</div>
           <div className="stat-value">{fmt(totals.monthlyBills, { showCents: false })}</div>
           <div className="stat-sub">{bills.length} recurring</div>
         </div>
         <div className="stat-card warm">
-          <div className="stat-label">Spent this month</div>
-          <div className="stat-value">{fmt(totals.spentThisMonth, { showCents: false })}</div>
-          <div className="stat-sub">of {fmt(totals.budgetedThisMonth, { showCents: false })} budgeted</div>
+          <div className="stat-label">Spent this cycle</div>
+          <div className="stat-value">{fmt(totals.spentThisCycle, { showCents: false })}</div>
+          <div className="stat-sub">of {fmt(totals.budgetedThisCycle, { showCents: false })} budgeted</div>
         </div>
         <div className="stat-card rose">
           <div className="stat-label">Left after bills</div>
           <div className="stat-value">{fmt(totals.leftover, { showCents: false })}</div>
-          <div className="stat-sub">Available for goals &amp; spending</div>
+          <div className="stat-sub">Per cycle, post-bills estimate</div>
         </div>
       </div>
 
