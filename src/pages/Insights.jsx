@@ -6,6 +6,9 @@ import { BarChart, Bar, ResponsiveContainer, XAxis, YAxis, Tooltip, Cell, LineCh
 export default function Insights() {
   const { year: thisYear } = currentMonth()
   const [year, setYear] = useState(thisYear)
+  // 'fytd' = total spent this fiscal year to date
+  // 'monthly' = same total divided by months with activity
+  const [chartMode, setChartMode] = useState('fytd')
 
   const { data: transactions } = useTable('transactions', {
     filters: [
@@ -16,7 +19,7 @@ export default function Insights() {
   })
   const { data: categories } = useTable('categories', { orderBy: 'sort_order' })
 
-  /* --- Per-month totals --- */
+  /* --- Per-month totals (for cashflow line chart, always monthly) --- */
   const monthlyData = useMemo(() => {
     return Array.from({ length: 12 }, (_, i) => {
       const month = i + 1
@@ -30,8 +33,13 @@ export default function Insights() {
     })
   }, [transactions, year])
 
-  /* --- Category breakdown (FYTD) --- */
-  const categoryData = useMemo(() => {
+  const monthsWithData = useMemo(() =>
+    monthlyData.filter(m => m.expense > 0).length || 1,
+    [monthlyData]
+  )
+
+  /* --- Category breakdown — always compute the FYTD totals, divide when needed --- */
+  const categoryDataFYTD = useMemo(() => {
     return categories
       .filter(c => c.kind !== 'income')
       .map(c => {
@@ -44,9 +52,19 @@ export default function Insights() {
       .sort((a, b) => b.value - a.value)
   }, [transactions, categories])
 
-  const totalFYTD = useMemo(() => categoryData.reduce((s, c) => s + c.value, 0), [categoryData])
-  const monthsWithData = monthlyData.filter(m => m.expense > 0).length || 1
+  // The data the charts actually plot — divided by months when in monthly mode
+  const categoryData = useMemo(() => {
+    if (chartMode === 'monthly') {
+      return categoryDataFYTD.map(c => ({ ...c, value: Math.round(c.value / monthsWithData) }))
+    }
+    return categoryDataFYTD
+  }, [categoryDataFYTD, chartMode, monthsWithData])
+
+  const totalFYTD = useMemo(() => categoryDataFYTD.reduce((s, c) => s + c.value, 0), [categoryDataFYTD])
   const avgMonthly = totalFYTD / monthsWithData
+
+  // Label suffix used in chart headers
+  const modeLabel = chartMode === 'fytd' ? 'FYTD' : 'Monthly avg'
 
   return (
     <div>
@@ -74,8 +92,8 @@ export default function Insights() {
         </div>
         <div className="stat-card warm">
           <div className="stat-label">Top category</div>
-          <div className="stat-value" style={{ fontSize: '1.4rem' }}>{categoryData[0]?.name || '—'}</div>
-          <div className="stat-sub">{categoryData[0] ? fmt(categoryData[0].value, { showCents: false }) : 'No data yet'}</div>
+          <div className="stat-value" style={{ fontSize: '1.4rem' }}>{categoryDataFYTD[0]?.name || '—'}</div>
+          <div className="stat-sub">{categoryDataFYTD[0] ? fmt(categoryDataFYTD[0].value, { showCents: false }) : 'No data yet'}</div>
         </div>
       </div>
 
@@ -100,11 +118,27 @@ export default function Insights() {
         </ResponsiveContainer>
       </div>
 
+      {/* Toggle for the two category charts below */}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '0.75rem', gap: 4 }}>
+        <button
+          className={'btn btn-sm ' + (chartMode === 'fytd' ? '' : 'btn-ghost')}
+          onClick={() => setChartMode('fytd')}
+        >
+          FYTD total
+        </button>
+        <button
+          className={'btn btn-sm ' + (chartMode === 'monthly' ? '' : 'btn-ghost')}
+          onClick={() => setChartMode('monthly')}
+        >
+          Monthly avg
+        </button>
+      </div>
+
       <div className="grid-2">
         <div className="card">
           <div className="card-head">
             <h3>By category</h3>
-            <span className="eyebrow">FYTD</span>
+            <span className="eyebrow">{modeLabel}</span>
           </div>
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={categoryData} layout="vertical" margin={{ top: 4, right: 24, bottom: 4, left: 8 }}>
@@ -124,7 +158,7 @@ export default function Insights() {
         <div className="card">
           <div className="card-head">
             <h3>Share of spend</h3>
-            <span className="eyebrow">FYTD</span>
+            <span className="eyebrow">{modeLabel}</span>
           </div>
           <ResponsiveContainer width="100%" height={300}>
             <PieChart>
