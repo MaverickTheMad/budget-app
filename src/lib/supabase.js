@@ -7,4 +7,10 @@ if (!url || !key) {
   console.warn('Missing Supabase env vars. App will run in read-only mock mode.')
 }
 
-export const supabase = createClient(url || 'https://placeholder.supabase.co', key || 'placeholder')
+// All Budget data lives in the "budget" schema of the shared reilly.live
+// Supabase project. No .from() calls need to change.
+export const supabase = createClient(
+  url || 'https://placeholder.supabase.co',
+  key || 'placeholder',
+  { db: { schema: 'budget' } }
+)
