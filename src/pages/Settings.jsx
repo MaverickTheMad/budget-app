@@ -4,45 +4,57 @@ import { fmt } from '../lib/format'
 import { supabase } from '../lib/supabase'
 import { toISODate, getPayCycle, formatCycleLabel } from '../lib/payCycle'
 
-const ANCHOR_KEY = 'pay_cycle_anchor'
+const ANCHOR_KEY = 'pay_cycle_anchor_paycheck'
 
-// Pay cycle anchor — the single household 14-day cycle start date
+// Pay cycle anchor — the household 14-day cycle is driven by a chosen paycheck.
+// We store the paycheck id; the cycle anchors to that paycheck's next_date.
 function PayCycleAnchorCard() {
-  const [anchorISO, setAnchorISO] = useState('')
+  const { data: paychecks } = useTable('paychecks', { orderBy: 'label' })
+  const [paycheckId, setPaycheckId] = useState('')
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
     supabase.from('app_settings').select('value').eq('key', ANCHOR_KEY).maybeSingle()
       .then(({ data }) => {
         const v = data?.value
-        setAnchorISO(typeof v === 'string' ? v : (v?.date || toISODate(new Date())))
+        setPaycheckId(typeof v === 'string' ? v : (v?.id || ''))
       })
   }, [])
 
   const save = async () => {
     setSaving(true)
     await supabase.from('app_settings')
-      .upsert({ key: ANCHOR_KEY, value: anchorISO, updated_at: new Date().toISOString() })
+      .upsert({ key: ANCHOR_KEY, value: paycheckId, updated_at: new Date().toISOString() })
     setSaving(false)
   }
 
-  const preview = anchorISO ? formatCycleLabel(getPayCycle(anchorISO)) : '—'
+  const anchor = paychecks.find(p => p.id === paycheckId)
+  const preview = anchor?.next_date ? formatCycleLabel(getPayCycle(anchor.next_date)) : '—'
 
   return (
     <div className="card" style={{ marginBottom: '1rem' }}>
       <div className="card-head"><h3>Pay cycle anchor</h3></div>
       <p style={{ fontSize: 13, color: 'var(--ink-muted)', marginBottom: '0.75rem' }}>
-        Budgets and Overview run on a single 14-day pay cycle. Set the date a cycle starts — typically a paycheck date. Cycles repeat every 14 days from there.
+        Budgets and Overview run on a single 14-day pay cycle. Pick the paycheck that drives it — the cycle anchors to that paycheck's pay date and repeats every 14 days, staying in sync with payday automatically.
       </p>
       <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'end' }}>
         <div className="field" style={{ flex: 1 }}>
-          <label>Cycle start date</label>
-          <input className="input" type="date" value={anchorISO} onChange={(e) => setAnchorISO(e.target.value)} />
+          <label>Anchor paycheck</label>
+          <select className="select" value={paycheckId} onChange={(e) => setPaycheckId(e.target.value)}>
+            <option value="">— Pick paycheck —</option>
+            {paychecks.map(p => (
+              <option key={p.id} value={p.id}>
+                {p.label}{p.next_date ? ` (${p.next_date})` : ''}
+              </option>
+            ))}
+          </select>
         </div>
-        <button className="btn" onClick={save} disabled={!anchorISO || saving}>{saving ? 'Saving…' : 'Save'}</button>
+        <button className="btn" onClick={save} disabled={!paycheckId || saving}>{saving ? 'Saving…' : 'Save'}</button>
       </div>
       <p style={{ fontSize: 12, color: 'var(--ink-muted)', marginTop: '0.5rem' }}>
-        Current cycle: <strong>{preview}</strong>
+        {anchor && !anchor.next_date
+          ? <span style={{ color: 'var(--negative)' }}>This paycheck has no pay date set — edit it below so the cycle can anchor.</span>
+          : <>Current cycle: <strong>{preview}</strong></>}
       </p>
     </div>
   )

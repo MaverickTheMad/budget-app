@@ -4,10 +4,16 @@ import { fmt, ordinal, daysUntil } from '../lib/format'
 import { supabase } from '../lib/supabase'
 import { getPayCycle, formatCycleLabel, toISODate } from '../lib/payCycle'
 
-const ANCHOR_KEY = 'pay_cycle_anchor'
+const ANCHOR_KEY = 'pay_cycle_anchor_paycheck'
 
 export default function Overview() {
+  const [anchorPaycheckId, setAnchorPaycheckId] = useState(null)
   const [anchorISO, setAnchorISO] = useState(null)
+
+  const { data: bills } = useTable('bills', { filters: [{ col: 'active', op: 'eq', val: true }] })
+  const { data: paychecks } = useTable('paychecks')
+  const { data: transactions } = useTable('transactions', { orderBy: 'date', ascending: false })
+  const { data: goals } = useTable('goals', { filters: [{ col: 'archived', op: 'eq', val: false }] })
 
   useEffect(() => {
     let mounted = true
@@ -15,19 +21,20 @@ export default function Overview() {
       .then(({ data }) => {
         if (!mounted) return
         const v = data?.value
-        setAnchorISO(typeof v === 'string' ? v : (v?.date || toISODate(new Date())))
+        setAnchorPaycheckId(typeof v === 'string' ? v : (v?.id || ''))
       })
     return () => { mounted = false }
   }, [])
 
+  useEffect(() => {
+    if (anchorPaycheckId === null) return
+    const pc = paychecks.find(p => p.id === anchorPaycheckId)
+    setAnchorISO(pc?.next_date || toISODate(new Date()))
+  }, [anchorPaycheckId, paychecks])
+
   const cycle = useMemo(() => anchorISO
     ? { ...getPayCycle(anchorISO), label: formatCycleLabel(getPayCycle(anchorISO)) }
     : null, [anchorISO])
-
-  const { data: bills } = useTable('bills', { filters: [{ col: 'active', op: 'eq', val: true }] })
-  const { data: paychecks } = useTable('paychecks')
-  const { data: transactions } = useTable('transactions', { orderBy: 'date', ascending: false })
-  const { data: goals } = useTable('goals', { filters: [{ col: 'archived', op: 'eq', val: false }] })
 
   const totals = useMemo(() => {
     const monthlyIncome = paychecks.reduce((s, p) => {

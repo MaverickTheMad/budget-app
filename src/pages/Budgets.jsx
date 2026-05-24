@@ -8,12 +8,15 @@ import { getPayCycle, formatCycleLabel, toISODate } from '../lib/payCycle'
 // Storage (monthly_budgets): period_type='cycle', person_id=NULL, period_start=<cycle start>.
 // Uniqueness for a household cycle budget: (category_id, period_start) with person_id null.
 
-const ANCHOR_KEY = 'pay_cycle_anchor'
+const ANCHOR_KEY = 'pay_cycle_anchor_paycheck'
 
 export default function Budgets() {
   const [anchorISO, setAnchorISO] = useState(null)
+  const [anchorPaycheckId, setAnchorPaycheckId] = useState(null)
   const [offset, setOffset] = useState(0)
   const [manageOpen, setManageOpen] = useState(false)
+
+  const { data: paychecks } = useTable('paychecks')
 
   useEffect(() => {
     let mounted = true
@@ -21,10 +24,18 @@ export default function Budgets() {
       .then(({ data }) => {
         if (!mounted) return
         const v = data?.value
-        setAnchorISO(typeof v === 'string' ? v : (v?.date || toISODate(new Date())))
+        const id = typeof v === 'string' ? v : (v?.id || '')
+        setAnchorPaycheckId(id)
       })
     return () => { mounted = false }
   }, [])
+
+  // Resolve the chosen paycheck's next_date into the cycle anchor
+  useEffect(() => {
+    if (anchorPaycheckId === null) return
+    const pc = paychecks.find(p => p.id === anchorPaycheckId)
+    setAnchorISO(pc?.next_date || toISODate(new Date()))
+  }, [anchorPaycheckId, paychecks])
 
   const cycle = useMemo(() => {
     if (!anchorISO) return null
