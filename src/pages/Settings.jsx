@@ -1,7 +1,52 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useTable } from '../hooks/useTable'
 import { fmt } from '../lib/format'
-import { toISODate } from '../lib/payCycle'
+import { supabase } from '../lib/supabase'
+import { toISODate, getPayCycle, formatCycleLabel } from '../lib/payCycle'
+
+const ANCHOR_KEY = 'pay_cycle_anchor'
+
+// Pay cycle anchor — the single household 14-day cycle start date
+function PayCycleAnchorCard() {
+  const [anchorISO, setAnchorISO] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    supabase.from('app_settings').select('value').eq('key', ANCHOR_KEY).maybeSingle()
+      .then(({ data }) => {
+        const v = data?.value
+        setAnchorISO(typeof v === 'string' ? v : (v?.date || toISODate(new Date())))
+      })
+  }, [])
+
+  const save = async () => {
+    setSaving(true)
+    await supabase.from('app_settings')
+      .upsert({ key: ANCHOR_KEY, value: anchorISO, updated_at: new Date().toISOString() })
+    setSaving(false)
+  }
+
+  const preview = anchorISO ? formatCycleLabel(getPayCycle(anchorISO)) : '—'
+
+  return (
+    <div className="card" style={{ marginBottom: '1rem' }}>
+      <div className="card-head"><h3>Pay cycle anchor</h3></div>
+      <p style={{ fontSize: 13, color: 'var(--ink-muted)', marginBottom: '0.75rem' }}>
+        Budgets and Overview run on a single 14-day pay cycle. Set the date a cycle starts — typically a paycheck date. Cycles repeat every 14 days from there.
+      </p>
+      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'end' }}>
+        <div className="field" style={{ flex: 1 }}>
+          <label>Cycle start date</label>
+          <input className="input" type="date" value={anchorISO} onChange={(e) => setAnchorISO(e.target.value)} />
+        </div>
+        <button className="btn" onClick={save} disabled={!anchorISO || saving}>{saving ? 'Saving…' : 'Save'}</button>
+      </div>
+      <p style={{ fontSize: 12, color: 'var(--ink-muted)', marginTop: '0.5rem' }}>
+        Current cycle: <strong>{preview}</strong>
+      </p>
+    </div>
+  )
+}
 
 // Generic CRUD list used for simple tables
 function CrudList({ table, title, fields, defaults, orderBy }) {
@@ -344,6 +389,8 @@ export default function Settings() {
           <p>Accounts, paychecks, people, categories.</p>
         </div>
       </div>
+
+      <PayCycleAnchorCard />
 
       <PaychecksCard />
 

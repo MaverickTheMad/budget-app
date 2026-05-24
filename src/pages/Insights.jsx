@@ -6,9 +6,8 @@ import { BarChart, Bar, ResponsiveContainer, XAxis, YAxis, Tooltip, Cell, LineCh
 export default function Insights() {
   const { year: thisYear } = currentMonth()
   const [year, setYear] = useState(thisYear)
-  // 'fytd' = total spent this fiscal year to date
-  // 'monthly' = same total divided by months with activity
-  const [chartMode, setChartMode] = useState('fytd')
+  const [chartMode, setChartMode] = useState('fytd')   // 'fytd' | 'monthly'
+  const [selectedCategoryId, setSelectedCategoryId] = useState(null)
 
   const { data: transactions } = useTable('transactions', {
     filters: [
@@ -18,8 +17,9 @@ export default function Insights() {
     deps: [year]
   })
   const { data: categories } = useTable('categories', { orderBy: 'sort_order' })
+  const { data: accounts } = useTable('accounts')
 
-  /* --- Per-month totals (for cashflow line chart, always monthly) --- */
+  /* --- Per-month cashflow (always monthly) --- */
   const monthlyData = useMemo(() => {
     return Array.from({ length: 12 }, (_, i) => {
       const month = i + 1
@@ -38,7 +38,7 @@ export default function Insights() {
     [monthlyData]
   )
 
-  /* --- Category breakdown — always compute the FYTD totals, divide when needed --- */
+  /* --- Category breakdown (carries id so we can drill in) --- */
   const categoryDataFYTD = useMemo(() => {
     return categories
       .filter(c => c.kind !== 'income')
@@ -46,13 +46,12 @@ export default function Insights() {
         const spent = transactions
           .filter(t => t.category_id === c.id && Number(t.amount) < 0)
           .reduce((s, t) => s + Math.abs(Number(t.amount)), 0)
-        return { name: c.name, value: Math.round(spent), color: c.color }
+        return { id: c.id, name: c.name, value: Math.round(spent), color: c.color }
       })
       .filter(c => c.value > 0)
       .sort((a, b) => b.value - a.value)
   }, [transactions, categories])
 
-  // The data the charts actually plot — divided by months when in monthly mode
   const categoryData = useMemo(() => {
     if (chartMode === 'monthly') {
       return categoryDataFYTD.map(c => ({ ...c, value: Math.round(c.value / monthsWithData) }))
@@ -62,9 +61,36 @@ export default function Insights() {
 
   const totalFYTD = useMemo(() => categoryDataFYTD.reduce((s, c) => s + c.value, 0), [categoryDataFYTD])
   const avgMonthly = totalFYTD / monthsWithData
-
-  // Label suffix used in chart headers
   const modeLabel = chartMode === 'fytd' ? 'FYTD' : 'Monthly avg'
+
+  /* --- Drill-down detail for the selected category --- */
+  const detail = useMemo(() => {
+    if (!selectedCategoryId) return null
+    const cat = categories.find(c => c.id === selectedCategoryId)
+    if (!cat) return null
+    const txns = transactions
+      .filter(t => t.category_id === selectedCategoryId && Number(t.amount) < 0)
+      .sort((a, b) => (a.date < b.date ? 1 : -1))   // newest first
+    const total = txns.reduce((s, t) => s + Math.abs(Number(t.amount)), 0)
+    // month-by-month spend for this category
+    const byMonth = Array.from({ length: 12 }, (_, i) => {
+      const month = i + 1
+      const spent = txns
+        .filter(t => { const d = new Date(t.date); return d.getMonth() + 1 === month })
+        .reduce((s, t) => s + Math.abs(Number(t.amount)), 0)
+      return { month: monthShort(month), spent: Math.round(spent) }
+    })
+    const activeMonths = byMonth.filter(m => m.spent > 0).length || 1
+    return {
+      cat,
+      txns,
+      total,
+      count: txns.length,
+      avgPerMonth: total / activeMonths,
+      avgPerTxn: txns.length ? total / txns.length : 0,
+      byMonth
+    }
+  }, [selectedCategoryId, categories, transactions])
 
   return (
     <div>
@@ -72,11 +98,11 @@ export default function Insights() {
         <div>
           <p className="eyebrow">FY {year}</p>
           <h1>Insights</h1>
-          <p>The pattern of where the money goes.</p>
+          <p>The pattern of where the money goes. Click a category to drill in.</p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <button className="btn btn-ghost btn-sm" onClick={() => setYear(year - 1)}>← {year - 1}</button>
-          <button className="btn btn-ghost btn-sm" onClick={() => setYear(year + 1)}>{year + 1} →</button>
+          <button className="btn btn-ghost btn-sm" onClick={() => { setYear(year - 1); setSelectedCategoryId(null) }}>← {year - 1}</button>
+          <button className="btn btn-ghost btn-sm" onClick={() => { setYear(year + 1); setSelectedCategoryId(null) }}>{year + 1} →</button>
         </div>
       </div>
 
@@ -118,27 +144,17 @@ export default function Insights() {
         </ResponsiveContainer>
       </div>
 
-      {/* Toggle for the two category charts below */}
+      {/* Toggle for the category charts */}
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '0.75rem', gap: 4 }}>
-        <button
-          className={'btn btn-sm ' + (chartMode === 'fytd' ? '' : 'btn-ghost')}
-          onClick={() => setChartMode('fytd')}
-        >
-          FYTD total
-        </button>
-        <button
-          className={'btn btn-sm ' + (chartMode === 'monthly' ? '' : 'btn-ghost')}
-          onClick={() => setChartMode('monthly')}
-        >
-          Monthly avg
-        </button>
+        <button className={'btn btn-sm ' + (chartMode === 'fytd' ? '' : 'btn-ghost')} onClick={() => setChartMode('fytd')}>FYTD total</button>
+        <button className={'btn btn-sm ' + (chartMode === 'monthly' ? '' : 'btn-ghost')} onClick={() => setChartMode('monthly')}>Monthly avg</button>
       </div>
 
       <div className="grid-2">
         <div className="card">
           <div className="card-head">
             <h3>By category</h3>
-            <span className="eyebrow">{modeLabel}</span>
+            <span className="eyebrow">{modeLabel} · click to drill in</span>
           </div>
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={categoryData} layout="vertical" margin={{ top: 4, right: 24, bottom: 4, left: 8 }}>
@@ -148,8 +164,12 @@ export default function Insights() {
                 contentStyle={{ background: '#fffdf9', border: '1px solid #e3d8c8', borderRadius: 12, fontSize: 13 }}
                 formatter={(v) => fmt(v, { showCents: false })}
               />
-              <Bar dataKey="value" radius={[0, 6, 6, 0]}>
-                {categoryData.map((c, i) => <Cell key={i} fill={c.color} />)}
+              <Bar dataKey="value" radius={[0, 6, 6, 0]} cursor="pointer"
+                onClick={(d) => { const id = d?.id || d?.payload?.id; if (id) setSelectedCategoryId(id) }}>
+                {categoryData.map((c, i) => (
+                  <Cell key={i} fill={c.color}
+                    opacity={selectedCategoryId && selectedCategoryId !== c.id ? 0.4 : 1} />
+                ))}
               </Bar>
             </BarChart>
           </ResponsiveContainer>
@@ -162,8 +182,13 @@ export default function Insights() {
           </div>
           <ResponsiveContainer width="100%" height={300}>
             <PieChart>
-              <Pie data={categoryData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={100} innerRadius={55} paddingAngle={2}>
-                {categoryData.map((c, i) => <Cell key={i} fill={c.color} />)}
+              <Pie data={categoryData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={100} innerRadius={55} paddingAngle={2}
+                cursor="pointer"
+                onClick={(d) => { const id = d?.id || d?.payload?.id; if (id) setSelectedCategoryId(id) }}>
+                {categoryData.map((c, i) => (
+                  <Cell key={i} fill={c.color}
+                    opacity={selectedCategoryId && selectedCategoryId !== c.id ? 0.4 : 1} />
+                ))}
               </Pie>
               <Tooltip
                 contentStyle={{ background: '#fffdf9', border: '1px solid #e3d8c8', borderRadius: 12, fontSize: 13 }}
@@ -173,6 +198,105 @@ export default function Insights() {
           </ResponsiveContainer>
         </div>
       </div>
+
+      {/* Clickable category list (works even where charts are fiddly to tap) */}
+      <div className="card" style={{ marginTop: '1.5rem' }}>
+        <div className="card-head">
+          <h3>Categories</h3>
+          <span className="eyebrow">{modeLabel}</span>
+        </div>
+        <table className="ledger">
+          <tbody>
+            {categoryData.map(c => (
+              <tr key={c.id} style={{ cursor: 'pointer', background: selectedCategoryId === c.id ? 'var(--paper-warm)' : 'transparent' }}
+                onClick={() => setSelectedCategoryId(c.id)}>
+                <td style={{ width: 30 }}><span className="dot" style={{ background: c.color }}></span></td>
+                <td style={{ fontWeight: 500 }}>{c.name}</td>
+                <td className="num">{fmt(c.value, { showCents: false })}</td>
+                <td style={{ width: 30, textAlign: 'right', color: 'var(--ink-muted)' }}>›</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {categoryData.length === 0 && <div className="empty"><p>No spending recorded for {year} yet.</p></div>}
+      </div>
+
+      {/* Drill-down detail */}
+      {detail && (
+        <div className="card" style={{ marginTop: '1.5rem', borderTop: `3px solid ${detail.cat.color}` }}>
+          <div className="card-head">
+            <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span className="dot" style={{ background: detail.cat.color }}></span>
+              {detail.cat.name}
+            </h3>
+            <button className="icon-btn" onClick={() => setSelectedCategoryId(null)} title="Close">×</button>
+          </div>
+
+          <div className="grid-4" style={{ marginBottom: '1.25rem' }}>
+            <div className="stat-card">
+              <div className="stat-label">Total {year}</div>
+              <div className="stat-value" style={{ fontSize: '1.5rem' }}>{fmt(detail.total, { showCents: false })}</div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-label">Transactions</div>
+              <div className="stat-value" style={{ fontSize: '1.5rem' }}>{detail.count}</div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-label">Avg / month</div>
+              <div className="stat-value" style={{ fontSize: '1.5rem' }}>{fmt(detail.avgPerMonth, { showCents: false })}</div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-label">Avg / transaction</div>
+              <div className="stat-value" style={{ fontSize: '1.5rem' }}>{fmt(detail.avgPerTxn, { showCents: false })}</div>
+            </div>
+          </div>
+
+          <div style={{ marginBottom: '1.25rem' }}>
+            <div className="eyebrow" style={{ marginBottom: 8 }}>Month by month</div>
+            <ResponsiveContainer width="100%" height={160}>
+              <BarChart data={detail.byMonth} margin={{ top: 4, right: 8, bottom: 0, left: -12 }}>
+                <XAxis dataKey="month" stroke="#8a7e6f" style={{ fontSize: 11 }} />
+                <YAxis stroke="#8a7e6f" style={{ fontSize: 11 }} tickFormatter={(v) => `$${(v/1000).toFixed(1)}k`} />
+                <Tooltip
+                  contentStyle={{ background: '#fffdf9', border: '1px solid #e3d8c8', borderRadius: 12, fontSize: 13 }}
+                  formatter={(v) => fmt(v, { showCents: false })}
+                />
+                <Bar dataKey="spent" radius={[4, 4, 0, 0]} fill={detail.cat.color} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+
+          <div className="eyebrow" style={{ marginBottom: 8 }}>All transactions ({detail.count})</div>
+          <div style={{ maxHeight: 360, overflowY: 'auto' }}>
+            <table className="ledger">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Description</th>
+                  <th>Account</th>
+                  <th style={{ textAlign: 'right' }}>Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {detail.txns.map(t => {
+                  const acct = accounts.find(a => a.id === t.account_id)
+                  return (
+                    <tr key={t.id}>
+                      <td className="mono" style={{ fontSize: 12, color: 'var(--ink-muted)' }}>{t.date}</td>
+                      <td>
+                        <div style={{ fontWeight: 500 }}>{t.description}</div>
+                        {t.notes && <div style={{ fontSize: 12, color: 'var(--ink-muted)' }}>{t.notes}</div>}
+                      </td>
+                      <td style={{ fontSize: 13 }}>{acct?.name || <span style={{ color: 'var(--ink-faint)' }}>—</span>}</td>
+                      <td className="num amount amount-neg">{fmt(t.amount, { signed: true })}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
