@@ -25,6 +25,7 @@ export default function Imports() {
   // Review state
   const [parsed, setParsed] = useState([])
   const [pdfText, setPdfText] = useState('')
+  const [pdfPageItems, setPdfPageItems] = useState(null)
   const [batchSummary, setBatchSummary] = useState(null)
 
   const { data: categories } = useTable('categories', { orderBy: 'sort_order' })
@@ -41,6 +42,7 @@ export default function Imports() {
     setManualBank('')
     setParsed([])
     setPdfText('')
+    setPdfPageItems(null)
     setBatchSummary(null)
     setError(null)
   }
@@ -51,8 +53,9 @@ export default function Imports() {
     setError(null)
     setBusy(true)
     try {
-      const { text } = await extractPdfText(f)
+      const { text, pageItems } = await extractPdfText(f)
       setPdfText(text)
+      setPdfPageItems(pageItems)
       const bank = detectBank(text)
       setDetectedBank(bank)
       if (bank) setManualBank(bank)
@@ -70,7 +73,7 @@ export default function Imports() {
     setBusy(true)
     setError(null)
     try {
-      const txns = parseWithBank(pdfText, manualBank)
+      const txns = parseWithBank(pdfText, manualBank, { pageItems: pdfPageItems })
       if (txns.length === 0) {
         setError('No transactions found. This statement format may not be supported yet.')
         setBusy(false)
