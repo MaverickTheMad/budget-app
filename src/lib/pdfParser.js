@@ -21,12 +21,18 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
 /**
  * Extract text from a PDF file/blob.
  * @param {File|Blob} file
- * @returns {Promise<{ text: string, pages: string[], pageCount: number }>}
+ * @returns {Promise<{ text: string, pages: string[], pageItems: Array<Array<{x,y,str,width}>>, pageCount: number }>}
+ *   - text/pages: reading-order reconstruction (row-based parsers, e.g. Chase)
+ *   - pageItems: raw positioned items per page (geometry-based parsers, e.g. Wealthfront)
  */
 export async function extractPdfText(file) {
   const arrayBuffer = await file.arrayBuffer()
   const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise
   const pages = []
+  // Raw positioned text items, per page. Row-based parsers (Chase) work off the
+  // reconstructed `text`; table-transposed layouts (Wealthfront) need the original
+  // x/y geometry, because sorting by Y collapses each column into its own line.
+  const pageItems = []
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i)
     const content = await page.getTextContent()
@@ -42,6 +48,8 @@ export async function extractPdfText(file) {
         str: it.str,
         width: it.width || 0
       }))
+
+    pageItems.push(items)
 
     if (items.length === 0) {
       pages.push('')
@@ -94,6 +102,7 @@ export async function extractPdfText(file) {
   return {
     text: pages.join('\n\f\n'),
     pages,
+    pageItems,
     pageCount: pdf.numPages
   }
 }
