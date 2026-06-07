@@ -20,8 +20,9 @@ deep-linkable and the browser back button works. All previous routes
 bookmarks and the import "View transactions" link keep working.
 
 ### Transactions
-- **Per-month filter** — a Month dropdown populated from the months present in the
-  data; stat-card labels reflect the selected month.
+- **Date-range filter** — From / To date pickers (native calendar inputs) bounded
+  to the span of dates present in the data; inclusive on both ends, and either
+  bound can be left open. Stat-card labels reflect the active range.
 - **Sortable by category** — new sort dropdown (Newest / Oldest / By category /
   Largest / Smallest) plus a **Group by category** toggle that renders category
   sections with per-category subtotals.

@@ -842,12 +842,38 @@ input[type="checkbox"] {
    ════════════════════════════════════════════════════════════════════════ */
 .tx-filters {
   display: grid;
-  grid-template-columns: 1.4fr repeat(4, 1fr);
+  grid-template-columns: 1.6fr repeat(3, 1fr);
   gap: 0.6rem;
 }
 @media (max-width: 720px) {
   .tx-filters { grid-template-columns: 1fr 1fr; }
 }
+
+/* Date-range picker row */
+.tx-daterange {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.6rem;
+  margin-top: 0.6rem;
+  flex-wrap: wrap;
+}
+.tx-date-field { flex: 0 1 200px; }
+.tx-date-field label {
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-med);
+  color: var(--text-soft);
+  letter-spacing: 0.04em;
+}
+.tx-date-clear { flex-shrink: 0; }
+.tx-range-warn {
+  font-size: var(--fs-xs);
+  color: var(--danger);
+  align-self: center;
+}
+@media (max-width: 720px) {
+  .tx-date-field { flex: 1 1 140px; }
+}
+
 .tx-filters-row2 {
   display: flex;
   align-items: center;

@@ -1,7 +1,6 @@
 import { useState, useMemo } from 'react'
 import { useTable } from '../hooks/useTable'
 import { fmt, todayISO } from '../lib/format'
-import { monthKeyOf, monthKeysFrom, monthKeyLabel } from '../lib/period'
 
 // Sort options. Category sort groups rows by category name; within a category
 // the newest transactions come first.
@@ -21,14 +20,27 @@ export default function Transactions() {
   const [search, setSearch] = useState('')
   const [filterCategory, setFilterCategory] = useState('')
   const [filterAccount, setFilterAccount] = useState('')
-  const [filterMonth, setFilterMonth] = useState('')      // '' = all months
+  const [startDate, setStartDate] = useState('')   // '' = no lower bound
+  const [endDate, setEndDate] = useState('')        // '' = no upper bound
   const [sort, setSort] = useState('date_desc')
   const [groupByCategory, setGroupByCategory] = useState(false)
   const [modalOpen, setModalOpen] = useState(false)
   const [editing, setEditing] = useState(null)
 
-  // Months present in the data, newest first, for the month dropdown.
-  const monthOptions = useMemo(() => monthKeysFrom(transactions), [transactions])
+  // The span actually present in the data — used to bound the date inputs so
+  // you can't pick a range with no possible results.
+  const dateExtent = useMemo(() => {
+    if (transactions.length === 0) return { min: '', max: '' }
+    let min = transactions[0].date, max = transactions[0].date
+    for (const t of transactions) {
+      if (t.date < min) min = t.date
+      if (t.date > max) max = t.date
+    }
+    return { min, max }
+  }, [transactions])
+
+  // Range is invalid if start is after end (both set) — surface a gentle hint.
+  const rangeInvalid = startDate && endDate && startDate > endDate
 
   const catName = (id) => categories.find(c => c.id === id)?.name || ''
 
@@ -37,10 +49,12 @@ export default function Transactions() {
       if (search && !t.description?.toLowerCase().includes(search.toLowerCase())) return false
       if (filterCategory && t.category_id !== filterCategory) return false
       if (filterAccount && t.account_id !== filterAccount) return false
-      if (filterMonth && monthKeyOf(t.date) !== filterMonth) return false
+      // Dates are stored as YYYY-MM-DD, so string comparison is correct here.
+      if (startDate && t.date < startDate) return false
+      if (endDate && t.date > endDate) return false
       return true
     })
-  }, [transactions, search, filterCategory, filterAccount, filterMonth])
+  }, [transactions, search, filterCategory, filterAccount, startDate, endDate])
 
   const sorted = useMemo(() => {
     const arr = [...filtered]
@@ -98,9 +112,20 @@ export default function Transactions() {
   }, [filtered])
 
   const clearFilters = () => {
-    setSearch(''); setFilterCategory(''); setFilterAccount(''); setFilterMonth('')
+    setSearch(''); setFilterCategory(''); setFilterAccount(''); setStartDate(''); setEndDate('')
   }
-  const hasFilters = search || filterCategory || filterAccount || filterMonth
+  const hasFilters = search || filterCategory || filterAccount || startDate || endDate
+
+  // Short label for the active date range, shown on the income/expense cards.
+  const fmtShort = (iso) => {
+    const [y, m, d] = iso.split('-').map(Number)
+    return new Date(y, m - 1, d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  }
+  const rangeLabel =
+    startDate && endDate ? `${fmtShort(startDate)} – ${fmtShort(endDate)}`
+    : startDate ? `from ${fmtShort(startDate)}`
+    : endDate ? `through ${fmtShort(endDate)}`
+    : ''
 
   const openNew = () => {
     setEditing({ date: todayISO(), description: '', amount: 0, category_id: null, account_id: null, notes: '' })
@@ -161,18 +186,18 @@ export default function Transactions() {
         <div>
           <p className="eyebrow">Ledger</p>
           <h1>Transactions</h1>
-          <p>Every line. Filter by month, sort by category, edit in place.</p>
+          <p>Every line. Filter by date range, sort by category, edit in place.</p>
         </div>
         <button className="btn" onClick={openNew}>+ Add transaction</button>
       </div>
 
       <div className="grid-3" style={{ marginBottom: '1.25rem' }}>
         <div className="stat-card accent">
-          <div className="stat-label">Income {filterMonth ? '· ' + monthKeyLabel(filterMonth) : '(filtered)'}</div>
+          <div className="stat-label">Income {rangeLabel ? '· ' + rangeLabel : '(filtered)'}</div>
           <div className="stat-value">{fmt(totals.income, { showCents: false })}</div>
         </div>
         <div className="stat-card warm">
-          <div className="stat-label">Expense {filterMonth ? '· ' + monthKeyLabel(filterMonth) : '(filtered)'}</div>
+          <div className="stat-label">Expense {rangeLabel ? '· ' + rangeLabel : '(filtered)'}</div>
           <div className="stat-value">{fmt(totals.expense, { showCents: false })}</div>
         </div>
         <div className="stat-card">
@@ -186,10 +211,6 @@ export default function Transactions() {
       <div className="card" style={{ marginBottom: '1rem' }}>
         <div className="tx-filters">
           <input className="input" placeholder="Search description..." value={search} onChange={(e) => setSearch(e.target.value)} />
-          <select className="select" value={filterMonth} onChange={(e) => setFilterMonth(e.target.value)} aria-label="Month">
-            <option value="">All months</option>
-            {monthOptions.map(m => <option key={m} value={m}>{monthKeyLabel(m, { long: true })}</option>)}
-          </select>
           <select className="select" value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)} aria-label="Category">
             <option value="">All categories</option>
             {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
@@ -201,6 +222,38 @@ export default function Transactions() {
           <select className="select" value={sort} onChange={(e) => setSort(e.target.value)} aria-label="Sort">
             {SORTS.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
           </select>
+        </div>
+        <div className="tx-daterange">
+          <div className="field tx-date-field">
+            <label htmlFor="tx-start">From</label>
+            <input
+              id="tx-start"
+              className="input mono"
+              type="date"
+              value={startDate}
+              min={dateExtent.min || undefined}
+              max={dateExtent.max || undefined}
+              onChange={(e) => setStartDate(e.target.value)}
+            />
+          </div>
+          <div className="field tx-date-field">
+            <label htmlFor="tx-end">To</label>
+            <input
+              id="tx-end"
+              className="input mono"
+              type="date"
+              value={endDate}
+              min={dateExtent.min || undefined}
+              max={dateExtent.max || undefined}
+              onChange={(e) => setEndDate(e.target.value)}
+            />
+          </div>
+          {(startDate || endDate) && (
+            <button className="btn btn-ghost btn-sm tx-date-clear" onClick={() => { setStartDate(''); setEndDate('') }}>
+              Clear dates
+            </button>
+          )}
+          {rangeInvalid && <span className="tx-range-warn">Start date is after end date</span>}
         </div>
         <div className="tx-filters-row2">
           <label className="check-inline">
