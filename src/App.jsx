@@ -1,5 +1,6 @@
 import { Routes, Route, NavLink, Navigate } from 'react-router-dom'
 import { useEffect, useState } from 'react'
+import { whoami, loadTheme, setTheme as saveTheme, cachedTheme } from './lib/core.js'
 import Overview from './pages/Overview'
 import Bills from './pages/Bills'
 import Budgets from './pages/Budgets'
@@ -25,19 +26,24 @@ const NAV = [
 ]
 
 export default function App() {
-  // Theme: auto (system) | light | dark — persisted per app.
-  const [theme, setTheme] = useState(() => localStorage.getItem('ledger_theme') || 'auto')
+  // Theme now lives in the shared `core` schema so it follows the logged-in
+  // person across every Grove app. Seed from the local cache for instant paint,
+  // then reconcile from core.prefs once we know who's signed in.
+  const [theme, setTheme] = useState(() => cachedTheme())
+  const [personId, setPersonId] = useState(null)
 
   useEffect(() => {
-    const root = document.documentElement
-    root.classList.remove('theme-dark', 'theme-light')
-    if (theme === 'dark')  root.classList.add('theme-dark')
-    if (theme === 'light') root.classList.add('theme-light')
-    localStorage.setItem('ledger_theme', theme)
-  }, [theme])
+    whoami().then((w) => {
+      setPersonId(w.person?.id ?? null)
+      loadTheme(w.person?.id).then(setTheme)
+    })
+  }, [])
 
-  const cycleTheme = () =>
-    setTheme(t => t === 'auto' ? 'light' : t === 'light' ? 'dark' : 'auto')
+  const cycleTheme = () => {
+    const next = theme === 'auto' ? 'light' : theme === 'light' ? 'dark' : 'auto'
+    setTheme(next)
+    saveTheme(personId, next) // applies classes + caches locally + persists to core.prefs
+  }
   const themeIcon = theme === 'auto' ? '🌗' : theme === 'light' ? '☀️' : '🌙'
   const themeLabel = theme === 'auto' ? 'System theme' : theme === 'light' ? 'Light theme' : 'Dark theme'
 

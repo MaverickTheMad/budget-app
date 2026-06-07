@@ -1,10 +1,28 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useTable } from '../hooks/useTable'
 import { fmt } from '../lib/format'
 import { supabase } from '../lib/supabase'
+import { getPeople, updatePerson, addPerson as coreAddPerson, removePerson } from '../lib/core.js'
 import { toISODate, getPayCycle, formatCycleLabel } from '../lib/payCycle'
 
 const ANCHOR_KEY = 'pay_cycle_anchor_paycheck'
+
+// People now live in the shared `core` schema (core.people), not budget.people.
+// This hook mirrors the useTable shape so the cards barely change.
+function useCorePeople() {
+  const [data, setData] = useState([])
+  const refetch = useCallback(async () => {
+    try { setData(await getPeople()) } catch { setData([]) }
+  }, [])
+  useEffect(() => { refetch() }, [refetch])
+  return {
+    data,
+    refetch,
+    insert: async (row) => { const p = await coreAddPerson(data.length); if (p && row) await updatePerson(p.id, row); await refetch() },
+    update: async (id, patch) => { await updatePerson(id, patch); await refetch() },
+    remove: async (id) => { await removePerson(id); await refetch() },
+  }
+}
 
 // Pay cycle anchor — the household 14-day cycle is driven by a chosen paycheck.
 // We store the paycheck id; the cycle anchors to that paycheck's next_date.
@@ -136,20 +154,19 @@ function CrudList({ table, title, fields, defaults, orderBy }) {
   )
 }
 
-// People card — custom because we need a paycheck dropdown for primary_paycheck_id
+// People card — now backed by the shared core.people (identity for the whole suite)
 function PeopleCard() {
-  const { data: people, insert, update, remove } = useTable('people', { orderBy: 'name' })
-  const { data: paychecks } = useTable('paychecks')
+  const { data: people, insert, update, remove } = useCorePeople()
   const [editing, setEditing] = useState(null)
   const [open, setOpen] = useState(false)
 
-  const blank = () => ({ name: '', color: '#6b7a5a', primary_paycheck_id: null })
+  const blank = () => ({ name: '', color: '#9B82BE', email: '' })
 
   const handleSave = async () => {
     const payload = {
       name: editing.name,
       color: editing.color,
-      primary_paycheck_id: editing.primary_paycheck_id || null
+      email: editing.email || null,
     }
     if (editing.id) await update(editing.id, payload)
     else await insert(payload)
@@ -169,27 +186,20 @@ function PeopleCard() {
           <thead>
             <tr>
               <th>Name</th>
-              <th>Primary paycheck</th>
+              <th>Email <span style={{ color: 'var(--ink-muted)', fontWeight: 400 }}>(Cloudflare identity)</span></th>
               <th style={{ width: 60 }}></th>
             </tr>
           </thead>
           <tbody>
             {people.map(p => {
-              const pc = paychecks.find(x => x.id === p.primary_paycheck_id)
               return (
                 <tr key={p.id}>
                   <td>
                     <span className="dot" style={{ background: p.color, marginRight: 6 }}></span>
                     <span style={{ fontWeight: 500 }}>{p.name}</span>
                   </td>
-                  <td style={{ fontSize: 13 }}>
-                    {pc ? (
-                      <>
-                        {pc.label} <span style={{ color: 'var(--ink-muted)' }}>· {pc.next_date}</span>
-                      </>
-                    ) : (
-                      <span style={{ color: 'var(--negative)' }}>None set — pick one to anchor their pay cycle</span>
-                    )}
+                  <td className="mono" style={{ fontSize: 13, color: 'var(--ink-muted)' }}>
+                    {p.email || <span style={{ color: 'var(--negative)' }}>none set</span>}
                   </td>
                   <td style={{ textAlign: 'right' }}>
                     <button className="icon-btn" onClick={() => { setEditing({ ...p }); setOpen(true) }}>✎</button>
@@ -212,20 +222,13 @@ function PeopleCard() {
               </div>
               <div className="field">
                 <label>Color</label>
-                <input className="input" type="color" value={editing.color || '#6b7a5a'} onChange={(e) => setEditing({ ...editing, color: e.target.value })} style={{ height: 38 }} />
+                <input className="input" type="color" value={editing.color || '#9B82BE'} onChange={(e) => setEditing({ ...editing, color: e.target.value })} style={{ height: 38 }} />
               </div>
               <div className="field">
-                <label>Primary paycheck (anchors pay cycle)</label>
-                <select className="select" value={editing.primary_paycheck_id || ''} onChange={(e) => setEditing({ ...editing, primary_paycheck_id: e.target.value || null })}>
-                  <option value="">— None —</option>
-                  {paychecks.map(pc => (
-                    <option key={pc.id} value={pc.id}>
-                      {pc.label} ({pc.next_date || 'no date'})
-                    </option>
-                  ))}
-                </select>
+                <label>Email (Cloudflare identity)</label>
+                <input className="input mono" type="email" value={editing.email || ''} onChange={(e) => setEditing({ ...editing, email: e.target.value })} placeholder="name@example.com" />
                 <small style={{ color: 'var(--ink-muted)', fontSize: 12 }}>
-                  The pay date you pick anchors this person's 14-day budget cycle. Add paychecks below first if the dropdown is empty.
+                  Must match the address allowed in Cloudflare Access so this person is recognized across Grove apps.
                 </small>
               </div>
             </div>
@@ -247,7 +250,7 @@ function PeopleCard() {
 // Custom Paychecks card — has FK to people, date input, cadence dropdown
 function PaychecksCard() {
   const { data: paychecks, insert, update, remove } = useTable('paychecks', { orderBy: 'label' })
-  const { data: people } = useTable('people')
+  const { data: people } = useCorePeople()
   const { data: accounts } = useTable('accounts')
   const [editing, setEditing] = useState(null)
   const [open, setOpen] = useState(false)

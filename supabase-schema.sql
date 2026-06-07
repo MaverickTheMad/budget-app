@@ -13,13 +13,9 @@ create table if not exists accounts (
   created_at timestamptz default now()
 );
 
--- People / paycheck owners
-create table if not exists people (
-  id uuid default gen_random_uuid() primary key,
-  name text not null,                     -- 'Mav', 'Ren'
-  color text default '#6b7a5a',
-  created_at timestamptz default now()
-);
+-- People / paycheck owners now live in the shared core.people table
+-- (see db/01-core-schema.sql). budget.paychecks/transactions reference it
+-- cross-schema. Run the core schema before this one on a fresh install.
 
 -- Spending categories (matches the 13 in FY sheets)
 create table if not exists categories (
@@ -34,7 +30,7 @@ create table if not exists categories (
 -- Paycheck definitions (recurring income sources)
 create table if not exists paychecks (
   id uuid default gen_random_uuid() primary key,
-  person_id uuid references people(id) on delete cascade,
+  person_id uuid references core.people(id) on delete cascade,
   label text not null,                    -- 'Mav Paycheck (Chase)'
   amount numeric(10,2) not null,
   cadence text default 'biweekly',        -- weekly | biweekly | semimonthly | monthly
@@ -91,7 +87,7 @@ create table if not exists transactions (
   raw_description text,                   -- preserved from import
   category_id uuid references categories(id) on delete set null,
   account_id uuid references accounts(id) on delete set null,
-  person_id uuid references people(id) on delete set null,
+  person_id uuid references core.people(id) on delete set null,
   source text default 'manual',           -- manual | import | recurring
   import_batch_id uuid,
   notes text,
@@ -189,7 +185,6 @@ create table if not exists statement_imports (
 -- Row Level Security — anon access (matches Ren's Journal pattern)
 -- ============================================================
 alter table accounts          enable row level security;
-alter table people            enable row level security;
 alter table categories        enable row level security;
 alter table paychecks         enable row level security;
 alter table bills             enable row level security;
@@ -207,7 +202,7 @@ do $$
 declare t text;
 begin
   for t in select unnest(array[
-    'accounts','people','categories','paychecks','bills','bill_payments',
+    'accounts','categories','paychecks','bills','bill_payments',
     'monthly_budgets','transactions','goals','goal_contributions',
     'debts','debt_payments','rules','statement_imports'
   ])
@@ -221,11 +216,6 @@ end $$;
 -- Seed data — categories, people, accounts, bills, goals, debts
 -- (Pulled from your Family_Budget.xlsx)
 -- ============================================================
-insert into people (name, color) values
-  ('Mav', '#6b7a5a'),
-  ('Ren', '#c08478')
-on conflict do nothing;
-
 insert into categories (name, color, sort_order) values
   ('Bills & Utilities', '#6b4a55', 1),
   ('Pets (Misc.)',      '#b8945a', 2),
