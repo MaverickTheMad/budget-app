@@ -1,3 +1,72 @@
+# v1.6 — Navigation consolidation, per-month transactions, richer insights
+
+UI/UX pass. No schema changes — purely frontend, safe to deploy by pushing to `main`.
+
+## What changed
+
+### Header
+- **Back to Grove home** button added to the topbar, linking to `home.reilly.live`.
+  Collapses to just the arrow on narrow screens.
+
+### Navigation consolidated (10 -> 5 top-level items)
+The top nav is now **Overview . Money . Plan . Insights . Settings**. Related
+sections moved behind in-page sub-tabs:
+- **Money** = Transactions . Imports . Rules
+- **Plan** = Budgets . Bills . Goals . Snowball
+
+Sub-tabs are driven by a `?view=<id>` query param, so each section is
+deep-linkable and the browser back button works. All previous routes
+(`/transactions`, `/bills`, `/rules`, ...) now redirect to their new homes, so old
+bookmarks and the import "View transactions" link keep working.
+
+### Transactions
+- **Per-month filter** — a Month dropdown populated from the months present in the
+  data; stat-card labels reflect the selected month.
+- **Sortable by category** — new sort dropdown (Newest / Oldest / By category /
+  Largest / Smallest) plus a **Group by category** toggle that renders category
+  sections with per-category subtotals.
+- **Tighter rows** — new `.ledger-tight` table variant: reduced row padding,
+  description + note stacked into a compact two-line cell, fixed column widths,
+  account column hidden on small phones.
+- Filter bar reworked into a grid with a "Clear filters" action and a result count.
+
+### Insights
+- Split into two views via a segmented control: **Trends** and **Compare months**.
+- **Trends**: year stepper, **Monthly / Quarterly** granularity toggle (quarterly
+  cashflow renders as grouped bars, not an interpolated line), and a **Quarter**
+  selector that scopes every stat, chart, and the drill-down.
+- **Compare months**: two month dropdowns, side-by-side category bar chart, and a
+  category delta table (absolute + % change, "new" flag for newly-spent categories).
+- Chart colors/tooltips now route through CSS vars so they recolor correctly in
+  dark mode (per UI-POLISH-GUIDE section 7).
+
+## Files in this delta
+
+### New
+- `src/components/SubTabs.jsx` — in-page segmented sub-navigation + `useSubTab` hook
+- `src/lib/period.js` — month-key + quarter helpers (pure, timezone-safe)
+- `src/pages/Money.jsx` — wrapper hosting Transactions / Imports / Rules
+- `src/pages/Plan.jsx` — wrapper hosting Budgets / Bills / Goals / Snowball
+
+### Replaced
+- `src/App.jsx` — consolidated nav, back-to-home button, legacy-route redirects
+- `src/pages/Transactions.jsx` — month filter, sorting, grouping, tight rows
+- `src/pages/Insights.jsx` — Trends (granularity + quarter) + Compare view
+- `src/pages/Settings.jsx` — updated the "where are Rules" footer note
+- `src/pages/Imports.jsx` — "View transactions" link points to `/money?view=transactions`
+- `src/styles/index.css` — styles for home button, sub-tabs, segmented controls,
+  tight ledger rows, transaction filters, compare pickers
+
+## Deploy
+1. Drop these files into the repo at matching paths (overwrite where they exist).
+2. No `npm install` needed — no new dependencies.
+3. No migration — schema is unchanged.
+4. Commit and push to `main`; Vercel redeploys in ~60s.
+5. Smoke test: header home button, the Money/Plan sub-tabs, the Transactions
+   month filter + group-by-category, and the Insights Compare view.
+
+---
+
 # v1.1 — Statement imports
 
 ## Files in this delta

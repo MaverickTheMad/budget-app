@@ -437,7 +437,7 @@ export default function Settings() {
       />
 
       <div style={{ marginTop: '2rem', padding: '1rem', textAlign: 'center', color: 'var(--ink-muted)', fontSize: 13 }}>
-        <p>Categorization rules live on their own page — see <strong>Rules</strong> in the nav.</p>
+        <p>Categorization rules now live under <strong>Money → Rules</strong>.</p>
       </div>
     </div>
   )

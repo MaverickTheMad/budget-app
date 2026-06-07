@@ -1,6 +1,17 @@
 import { useState, useMemo } from 'react'
 import { useTable } from '../hooks/useTable'
 import { fmt, todayISO } from '../lib/format'
+import { monthKeyOf, monthKeysFrom, monthKeyLabel } from '../lib/period'
+
+// Sort options. Category sort groups rows by category name; within a category
+// the newest transactions come first.
+const SORTS = [
+  { id: 'date_desc', label: 'Newest first' },
+  { id: 'date_asc',  label: 'Oldest first' },
+  { id: 'category',  label: 'By category' },
+  { id: 'amount_desc', label: 'Largest first' },
+  { id: 'amount_asc',  label: 'Smallest first' },
+]
 
 export default function Transactions() {
   const { data: transactions, insert, update, remove } = useTable('transactions', { orderBy: 'date', ascending: false })
@@ -10,23 +21,86 @@ export default function Transactions() {
   const [search, setSearch] = useState('')
   const [filterCategory, setFilterCategory] = useState('')
   const [filterAccount, setFilterAccount] = useState('')
+  const [filterMonth, setFilterMonth] = useState('')      // '' = all months
+  const [sort, setSort] = useState('date_desc')
+  const [groupByCategory, setGroupByCategory] = useState(false)
   const [modalOpen, setModalOpen] = useState(false)
   const [editing, setEditing] = useState(null)
+
+  // Months present in the data, newest first, for the month dropdown.
+  const monthOptions = useMemo(() => monthKeysFrom(transactions), [transactions])
+
+  const catName = (id) => categories.find(c => c.id === id)?.name || ''
 
   const filtered = useMemo(() => {
     return transactions.filter(t => {
       if (search && !t.description?.toLowerCase().includes(search.toLowerCase())) return false
       if (filterCategory && t.category_id !== filterCategory) return false
       if (filterAccount && t.account_id !== filterAccount) return false
+      if (filterMonth && monthKeyOf(t.date) !== filterMonth) return false
       return true
     })
-  }, [transactions, search, filterCategory, filterAccount])
+  }, [transactions, search, filterCategory, filterAccount, filterMonth])
+
+  const sorted = useMemo(() => {
+    const arr = [...filtered]
+    switch (sort) {
+      case 'date_asc':  arr.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0)); break
+      case 'amount_desc': arr.sort((a, b) => Math.abs(Number(b.amount)) - Math.abs(Number(a.amount))); break
+      case 'amount_asc':  arr.sort((a, b) => Math.abs(Number(a.amount)) - Math.abs(Number(b.amount))); break
+      case 'category':
+        arr.sort((a, b) => {
+          const an = catName(a.category_id), bn = catName(b.category_id)
+          // Uncategorized sinks to the bottom
+          if (!an && bn) return 1
+          if (an && !bn) return -1
+          if (an !== bn) return an < bn ? -1 : 1
+          return a.date < b.date ? 1 : -1   // newest first within a category
+        })
+        break
+      default: arr.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0))
+    }
+    return arr
+  }, [filtered, sort, categories])
+
+  // When grouping is on, build [{ category, rows:[] }] sections in display order.
+  const grouped = useMemo(() => {
+    if (!groupByCategory) return null
+    const map = new Map()
+    for (const t of sorted) {
+      const key = t.category_id || '__none'
+      if (!map.has(key)) map.set(key, [])
+      map.get(key).push(t)
+    }
+    const sections = [...map.entries()].map(([key, rows]) => {
+      const cat = categories.find(c => c.id === key)
+      return {
+        key,
+        name: cat?.name || 'Uncategorized',
+        color: cat?.color || 'var(--ink-faint)',
+        rows,
+        total: rows.reduce((s, t) => s + Number(t.amount), 0),
+      }
+    })
+    // Sections sorted by name, Uncategorized last
+    sections.sort((a, b) => {
+      if (a.key === '__none') return 1
+      if (b.key === '__none') return -1
+      return a.name < b.name ? -1 : 1
+    })
+    return sections
+  }, [groupByCategory, sorted, categories])
 
   const totals = useMemo(() => {
     const income = filtered.filter(t => Number(t.amount) > 0).reduce((s, t) => s + Number(t.amount), 0)
     const expense = filtered.filter(t => Number(t.amount) < 0).reduce((s, t) => s + Math.abs(Number(t.amount)), 0)
     return { income, expense, net: income - expense }
   }, [filtered])
+
+  const clearFilters = () => {
+    setSearch(''); setFilterCategory(''); setFilterAccount(''); setFilterMonth('')
+  }
+  const hasFilters = search || filterCategory || filterAccount || filterMonth
 
   const openNew = () => {
     setEditing({ date: todayISO(), description: '', amount: 0, category_id: null, account_id: null, notes: '' })
@@ -48,24 +122,57 @@ export default function Transactions() {
     setModalOpen(false); setEditing(null)
   }
 
+  // A single ledger row, shared by flat + grouped renders.
+  const Row = ({ t }) => {
+    const cat = categories.find(c => c.id === t.category_id)
+    const acct = accounts.find(a => a.id === t.account_id)
+    const isExpense = Number(t.amount) < 0
+    return (
+      <tr>
+        <td className="mono col-date">{t.date}</td>
+        <td className="col-desc">
+          <span className="tx-desc">{t.description}</span>
+          {t.notes && <span className="tx-note">{t.notes}</span>}
+        </td>
+        {!groupByCategory && (
+          <td className="col-cat">
+            {cat ? (
+              <span className="cat-chip">
+                <span className="dot" style={{ background: cat.color }}></span>{cat.name}
+              </span>
+            ) : <span style={{ color: 'var(--ink-faint)' }}>—</span>}
+          </td>
+        )}
+        <td className="col-acct">{acct?.name || <span style={{ color: 'var(--ink-faint)' }}>—</span>}</td>
+        <td className={'num amount col-amt ' + (isExpense ? 'amount-neg' : 'amount-pos')}>
+          {fmt(t.amount, { signed: true })}
+        </td>
+        <td className="col-act">
+          <button className="icon-btn" onClick={() => openEdit(t)} title="Edit">&#9998;</button>
+          <button className="icon-btn" onClick={() => { if (confirm('Delete?')) remove(t.id) }} title="Delete">&times;</button>
+        </td>
+      </tr>
+    )
+  }
+
   return (
     <div>
       <div className="page-header">
         <div>
           <p className="eyebrow">Ledger</p>
           <h1>Transactions</h1>
-          <p>Every line. Searchable and editable.</p>
+          <p>Every line. Filter by month, sort by category, edit in place.</p>
         </div>
         <button className="btn" onClick={openNew}>+ Add transaction</button>
       </div>
 
       <div className="grid-3" style={{ marginBottom: '1.25rem' }}>
         <div className="stat-card accent">
-          <div className="stat-label">Income (filtered)</div>
+          <div className="stat-label">Income {filterMonth ? '· ' + monthKeyLabel(filterMonth) : '(filtered)'}</div>
           <div className="stat-value">{fmt(totals.income, { showCents: false })}</div>
         </div>
         <div className="stat-card warm">
-          <div className="stat-label">Expense (filtered)</div>
+          <div className="stat-label">Expense {filterMonth ? '· ' + monthKeyLabel(filterMonth) : '(filtered)'}</div>
           <div className="stat-value">{fmt(totals.expense, { showCents: false })}</div>
         </div>
         <div className="stat-card">
@@ -77,64 +184,71 @@ export default function Transactions() {
       </div>
 
       <div className="card" style={{ marginBottom: '1rem' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0.75rem' }}>
+        <div className="tx-filters">
           <input className="input" placeholder="Search description..." value={search} onChange={(e) => setSearch(e.target.value)} />
-          <select className="select" value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)}>
+          <select className="select" value={filterMonth} onChange={(e) => setFilterMonth(e.target.value)} aria-label="Month">
+            <option value="">All months</option>
+            {monthOptions.map(m => <option key={m} value={m}>{monthKeyLabel(m, { long: true })}</option>)}
+          </select>
+          <select className="select" value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)} aria-label="Category">
             <option value="">All categories</option>
             {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
-          <select className="select" value={filterAccount} onChange={(e) => setFilterAccount(e.target.value)}>
+          <select className="select" value={filterAccount} onChange={(e) => setFilterAccount(e.target.value)} aria-label="Account">
             <option value="">All accounts</option>
             {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
           </select>
+          <select className="select" value={sort} onChange={(e) => setSort(e.target.value)} aria-label="Sort">
+            {SORTS.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
+          </select>
+        </div>
+        <div className="tx-filters-row2">
+          <label className="check-inline">
+            <input type="checkbox" checked={groupByCategory} onChange={(e) => setGroupByCategory(e.target.checked)} />
+            Group by category
+          </label>
+          <span className="tx-count">{sorted.length} of {transactions.length}</span>
+          {hasFilters && <button className="btn btn-ghost btn-sm" onClick={clearFilters}>Clear filters</button>}
         </div>
       </div>
 
       <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-        <table className="ledger">
+        <table className="ledger ledger-tight">
           <thead>
             <tr>
-              <th>Date</th>
-              <th>Description</th>
-              <th>Category</th>
-              <th>Account</th>
-              <th style={{ textAlign: 'right' }}>Amount</th>
-              <th></th>
+              <th className="col-date">Date</th>
+              <th className="col-desc">Description</th>
+              {!groupByCategory && <th className="col-cat">Category</th>}
+              <th className="col-acct">Account</th>
+              <th className="col-amt" style={{ textAlign: 'right' }}>Amount</th>
+              <th className="col-act"></th>
             </tr>
           </thead>
-          <tbody>
-            {filtered.map(t => {
-              const cat = categories.find(c => c.id === t.category_id)
-              const acct = accounts.find(a => a.id === t.account_id)
-              const isExpense = Number(t.amount) < 0
-              return (
-                <tr key={t.id}>
-                  <td className="mono" style={{ fontSize: 12, color: 'var(--ink-muted)' }}>{t.date}</td>
-                  <td>
-                    <div style={{ fontWeight: 500 }}>{t.description}</div>
-                    {t.notes && <div style={{ fontSize: 12, color: 'var(--ink-muted)' }}>{t.notes}</div>}
+          {grouped ? (
+            grouped.map(section => (
+              <tbody key={section.key} className="tx-group">
+                <tr className="tx-group-head">
+                  <td colSpan={5}>
+                    <span className="cat-chip">
+                      <span className="dot" style={{ background: section.color }}></span>
+                      <strong>{section.name}</strong>
+                      <span className="tx-group-count">{section.rows.length}</span>
+                    </span>
                   </td>
-                  <td>
-                    {cat ? (
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
-                        <span className="dot" style={{ background: cat.color }}></span>{cat.name}
-                      </span>
-                    ) : <span style={{ color: 'var(--ink-faint)' }}>—</span>}
-                  </td>
-                  <td style={{ fontSize: 13 }}>{acct?.name || <span style={{ color: 'var(--ink-faint)' }}>—</span>}</td>
-                  <td className={'num amount ' + (isExpense ? 'amount-neg' : 'amount-pos')}>
-                    {fmt(t.amount, { signed: true })}
-                  </td>
-                  <td style={{ width: 80 }}>
-                    <button className="icon-btn" onClick={() => openEdit(t)}>✎</button>
-                    <button className="icon-btn" onClick={() => { if (confirm('Delete?')) remove(t.id) }}>×</button>
+                  <td className="num" style={{ textAlign: 'right', color: section.total < 0 ? 'var(--negative)' : 'var(--positive)' }}>
+                    {fmt(section.total, { showCents: false, signed: true })}
                   </td>
                 </tr>
-              )
-            })}
-          </tbody>
+                {section.rows.map(t => <Row key={t.id} t={t} />)}
+              </tbody>
+            ))
+          ) : (
+            <tbody>
+              {sorted.map(t => <Row key={t.id} t={t} />)}
+            </tbody>
+          )}
         </table>
-        {filtered.length === 0 && (
+        {sorted.length === 0 && (
           <div className="empty">
             <h3>No transactions match</h3>
             <p>Try clearing your filters, or add your first transaction.</p>
@@ -153,7 +267,7 @@ export default function Transactions() {
                   <input className="input" type="date" value={editing.date} onChange={(e) => setEditing({ ...editing, date: e.target.value })} />
                 </div>
                 <div className="field">
-                  <label>Amount (− for expense)</label>
+                  <label>Amount (- for expense)</label>
                   <input className="input mono" type="number" step="0.01" value={editing.amount} onChange={(e) => setEditing({ ...editing, amount: parseFloat(e.target.value) || 0 })} />
                 </div>
               </div>

@@ -716,3 +716,204 @@ input[type="checkbox"] {
 @media (max-width: 720px) {
   .topbar-inner .icon-btn { width: 40px; height: 40px; }
 }
+
+/* ════════════════════════════════════════════════════════════════════════
+   Back-to-home button (topbar, links to home.reilly.live)
+   ════════════════════════════════════════════════════════════════════════ */
+.home-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  padding: 7px 12px 7px 10px;
+  border-radius: var(--r-md);
+  background: var(--bg-paper);
+  border: 1px solid var(--border);
+  color: var(--text-soft);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-med);
+  transition: 160ms cubic-bezier(.2,.8,.2,1);
+}
+.home-btn:hover {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
+  background: var(--accent-weak);
+}
+.home-btn-arrow { font-size: 16px; line-height: 1; }
+.home-btn-label { font-family: var(--font-display); font-weight: var(--fw-title); }
+@media (max-width: 560px) {
+  .home-btn-label { display: none; }
+  .home-btn { padding: 7px 10px; }
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   In-page sub-tabs (Money / Plan group navigation)
+   ════════════════════════════════════════════════════════════════════════ */
+.subtabs {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  margin-bottom: var(--sp-5);
+  background: var(--bg-paper);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.subtabs::-webkit-scrollbar { display: none; }
+.subtab {
+  flex: 1 0 auto;
+  white-space: nowrap;
+  padding: 8px 16px;
+  border-radius: var(--r-sm);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-med);
+  color: var(--text-soft);
+  transition: 160ms cubic-bezier(.2,.8,.2,1);
+  display: inline-flex; align-items: center; gap: 6px; justify-content: center;
+}
+.subtab:hover { color: var(--text); }
+.subtab.active {
+  background: var(--accent);
+  color: #fff;
+  font-weight: var(--fw-title);
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   Segmented control (Insights view switch, year stepper, period toggle)
+   ════════════════════════════════════════════════════════════════════════ */
+.seg {
+  display: inline-flex;
+  align-items: stretch;
+  gap: 2px;
+  padding: 3px;
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+}
+.seg-btn {
+  padding: 6px 12px;
+  border-radius: var(--r-sm);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-med);
+  color: var(--text-soft);
+  white-space: nowrap;
+  transition: 140ms cubic-bezier(.2,.8,.2,1);
+}
+.seg-btn:hover { color: var(--text); }
+.seg-btn.active {
+  background: var(--accent);
+  color: #fff;
+  font-weight: var(--fw-title);
+}
+.seg-static {
+  display: inline-flex; align-items: center;
+  padding: 6px 10px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  color: var(--text);
+}
+
+/* Insights controls row */
+.insights-controls,
+.compare-pickers {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--sp-4);
+}
+.ic-group { display: flex; flex-direction: column; gap: 6px; }
+.ic-label {
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-med);
+  color: var(--text-soft);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.compare-vs {
+  font-family: var(--font-display);
+  font-style: italic;
+  color: var(--text-soft);
+  padding-bottom: 8px;
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   Transactions: filter layout + count + inline checkbox
+   ════════════════════════════════════════════════════════════════════════ */
+.tx-filters {
+  display: grid;
+  grid-template-columns: 1.4fr repeat(4, 1fr);
+  gap: 0.6rem;
+}
+@media (max-width: 720px) {
+  .tx-filters { grid-template-columns: 1fr 1fr; }
+}
+.tx-filters-row2 {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  margin-top: 0.6rem;
+  flex-wrap: wrap;
+}
+.check-inline {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: var(--fs-sm); color: var(--text-soft);
+  cursor: pointer;
+}
+.tx-count {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-faint);
+  margin-left: auto;
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   Tighter ledger rows (.ledger-tight) — denser than the default .ledger.
+   Description + note stack into a tight two-line cell instead of two divs
+   with default block spacing.
+   ════════════════════════════════════════════════════════════════════════ */
+table.ledger-tight th {
+  padding: 8px var(--sp-2);
+}
+table.ledger-tight td {
+  padding: 6px var(--sp-2);
+  line-height: 1.3;
+}
+.tx-desc { display: block; font-weight: 500; }
+.tx-note {
+  display: block;
+  font-size: var(--fs-xs);
+  color: var(--ink-muted);
+  margin-top: 1px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 320px;
+}
+.cat-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 13px;
+}
+.tx-group-count {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-faint);
+  margin-left: 6px;
+}
+.col-date { width: 92px; }
+.col-acct { width: 120px; font-size: 13px; }
+.col-amt  { width: 110px; }
+.col-act  { width: 72px; white-space: nowrap; }
+.col-cat  { width: 150px; }
+table.ledger-tight td.mono.col-date { font-size: 12px; color: var(--ink-muted); }
+
+/* Category group header rows when "Group by category" is on */
+.tx-group-head td {
+  background: var(--bg-sunken);
+  border-bottom: 1px solid var(--border) !important;
+  padding-top: 8px; padding-bottom: 8px;
+}
+.tx-group-head td strong { font-weight: var(--fw-title); }
+.tx-group + .tx-group .tx-group-head td { border-top: 1px solid var(--border); }
+
+@media (max-width: 560px) {
+  .col-acct { display: none; }
+  .tx-note { max-width: 180px; }
+}

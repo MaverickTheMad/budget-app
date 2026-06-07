@@ -515,7 +515,7 @@ function DoneStep({ summary, onReset }) {
       </p>
       <div style={{ display: 'flex', justifyContent: 'center', gap: '0.5rem' }}>
         <button className="btn btn-ghost" onClick={onReset}>Import another</button>
-        <a className="btn" href="/transactions">View transactions</a>
+        <a className="btn" href="/money?view=transactions">View transactions</a>
       </div>
     </div>
   )
